@@ -1,0 +1,4 @@
+playwright
+google-generativeai
+pytest
+pytest-asyncio
