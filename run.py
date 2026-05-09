@@ -10,8 +10,8 @@ async def main():
     parser = argparse.ArgumentParser(description="Hermes Generalized LINE Proxy")
     parser.add_argument("--chat", required=True, help="Target contact name")
     parser.add_argument("--task", required=True, help="Detailed task description")
-    parser.add_argument("--anchor", help="Text of the VERY LAST message currently in chat. Work starts AFTER this.")
-    parser.add_argument("--anchor-time", help="Timestamp of the anchor message (e.g., '2:19 AM')")
+    parser.add_argument("--last-ignored-msg", help="Text of the VERY LAST message to ignore. Context starts AFTER this.")
+    parser.add_argument("--last-ignored-time", help="Timestamp of the last ignored message (e.g., '2:19 AM')")
     parser.add_argument("--model", default="gemini-3-flash-preview", help="Gemini model name")
     args = parser.parse_args()
 
@@ -37,8 +37,8 @@ async def main():
                 page=page,
                 chat_name=args.chat,
                 task=args.task,
-                anchor_text=args.anchor,
-                anchor_time=args.anchor_time,
+                last_ignored_msg=args.last_ignored_msg,
+                last_ignored_time=args.last_ignored_time,
                 model_name=args.model,
                 api_key=api_key
             )

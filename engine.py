@@ -6,13 +6,13 @@ import google.generativeai as genai
 from line_utils import extract_messages, send_message
 
 class LineProxyEngine:
-    def __init__(self, page, chat_name, task, anchor_text=None, anchor_time=None, model_name="gemini-3-flash-preview", api_key=None):
+    def __init__(self, page, chat_name, task, last_ignored_msg=None, last_ignored_time=None, model_name="gemini-3-flash-preview", api_key=None):
         self.page = page
         self.target_chat = chat_name
         self.task_description = task
         self.model_name = model_name
-        self.anchor_text = anchor_text
-        self.anchor_time = anchor_time
+        self.last_ignored_msg = last_ignored_msg
+        self.last_ignored_time = last_ignored_time
         
         self.state_file = f"/tmp/line_proxy_{chat_name}_state.json"
         self.log_path = f"/tmp/line_proxy_{chat_name}.log"
@@ -104,12 +104,12 @@ class LineProxyEngine:
         log_history_texts = [m['text'] for m in trusted_history]
         
         dom_history = []
-        found_anchor = False if self.anchor_text else True
+        found_start = False if self.last_ignored_msg else True
         
         for m in reversed(msgs[:50]):
-            if not found_anchor:
-                if m["text"] == self.anchor_text and (not self.anchor_time or self.anchor_time in m["time"]):
-                    found_anchor = True
+            if not found_start:
+                if m["text"] == self.last_ignored_msg and (not self.last_ignored_time or self.last_ignored_time in m["time"]):
+                    found_start = True
                 else:
                     continue
             
@@ -122,7 +122,7 @@ class LineProxyEngine:
         prompt = (
             f"## 角色與工作任務 ##\n你現在是 Hermes，代表 Chunyu (賴俊羽) 的 AI 代理人。\n任務：{self.task_description}\n\n"
             f"{self.etiquette}\n\n"
-            f"## 對話上下文 (自錨點起) ##\n" + "\n".join(final_history) +
+            f"## 對話上下文 (排除已忽略訊息後) ##\n" + "\n".join(final_history) +
             f"\n\n根據上述歷史與禮儀，請給出下一步回覆（若對話已結案或正在等待，請回報進度）："
         )
         
@@ -193,6 +193,4 @@ class LineProxyEngine:
 
             await asyncio.sleep(5)
 
-        if os.path.exists(self.state_file):
-            os.remove(self.state_file)
         self.log("Session concluded.")
