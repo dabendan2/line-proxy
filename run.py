@@ -1,0 +1,52 @@
+import asyncio
+import argparse
+import os
+import sys
+from playwright.async_api import async_playwright
+from engine import LineProxyEngine
+from line_utils import get_line_page
+
+async def main():
+    parser = argparse.ArgumentParser(description="Hermes Generalized LINE Proxy")
+    parser.add_argument("--chat", required=True, help="Target contact name")
+    parser.add_argument("--task", required=True, help="Detailed task description")
+    parser.add_argument("--anchor", help="Text of the VERY LAST message currently in chat. Work starts AFTER this.")
+    parser.add_argument("--anchor-time", help="Timestamp of the anchor message (e.g., '2:19 AM')")
+    parser.add_argument("--model", default="gemini-3-flash-preview", help="Gemini model name")
+    args = parser.parse_args()
+
+    # Load API Key
+    api_key = os.environ.get("GOOGLE_API_KEY")
+    if not api_key:
+        print("Error: GOOGLE_API_KEY not set.")
+        return
+
+    async with async_playwright() as p:
+        try:
+            # Connect to existing browser
+            browser = await p.chromium.connect_over_cdp("http://localhost:9222")
+            context = browser.contexts[0]
+            
+            page = await get_line_page(context)
+            if not page:
+                print("Error: LINE page not found.")
+                await browser.close()
+                return
+
+            engine = LineProxyEngine(
+                page=page,
+                chat_name=args.chat,
+                task=args.task,
+                anchor_text=args.anchor,
+                anchor_time=args.anchor_time,
+                model_name=args.model,
+                api_key=api_key
+            )
+            
+            await engine.run()
+            await browser.close()
+        except Exception as e:
+            print(f"Runtime Error: {e}")
+
+if __name__ == "__main__":
+    asyncio.run(main())
