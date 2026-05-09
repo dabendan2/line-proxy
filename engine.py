@@ -3,6 +3,8 @@ import json
 import os
 import time
 import google.generativeai as genai
+import re
+from datetime import datetime
 from line_utils import extract_messages, send_message
 
 class LineProxyEngine:
@@ -14,7 +16,6 @@ class LineProxyEngine:
         self.last_ignored_msg = last_ignored_msg
         self.last_ignored_time = last_ignored_time
         
-        self.state_file = f"/tmp/line_proxy_{chat_name}_state.json"
         self.log_path = f"/tmp/line_proxy_{chat_name}.log"
         
         genai.configure(api_key=api_key)
@@ -24,26 +25,20 @@ class LineProxyEngine:
         with open(etiquette_path, "r", encoding="utf-8") as f:
             self.etiquette = f.read()
             
-        self.state = self.load_state()
+        # Operational State (In-Memory Only)
+        self.state = {
+            "last_processed_msg": "",
+            "last_processed_time": "",
+            "sent_messages": [],
+            "exit_at": None,
+            "startup_action_needed": False
+        }
 
     def log(self, msg):
         t = time.strftime("%Y-%m-%d %H:%M:%S")
         print(f"[{t}] {msg}", flush=True)
         with open(self.log_path, "a", encoding="utf-8") as f:
             f.write(f"[{t}] {msg}\n")
-
-    def load_state(self):
-        if os.path.exists(self.state_file):
-            try:
-                with open(self.state_file, "r") as f:
-                    return json.load(f)
-            except:
-                pass
-        return {"last_processed_msg": "", "last_processed_time": "", "sent_messages": [], "exit_at": None}
-
-    def save_state(self):
-        with open(self.state_file, "w") as f:
-            json.dump(self.state, f)
 
     def get_trusted_history_from_log(self):
         trusted = []
@@ -58,46 +53,76 @@ class LineProxyEngine:
                         trusted.append({"text": text, "sender": "User/Staff"})
         return trusted
 
-    def rebuild_memory(self, msgs):
+    def rebuild_memory_and_state(self, msgs):
+        """
+        Reconstructs the entire operational state from the log file.
+        No JSON dependency.
+        """
         trusted_log = []
+        last_log_time = None
+        
         if os.path.exists(self.log_path):
             with open(self.log_path, "r", encoding="utf-8") as f:
                 for line in f:
+                    timestamp_match = re.match(r"\[(.*?)\]", line)
+                    if not timestamp_match: continue
+                    
+                    t_str = timestamp_match.group(1)
+                    try:
+                        last_log_time = datetime.strptime(t_str, "%Y-%m-%d %H:%M:%S").timestamp()
+                    except:
+                        pass
+
                     if " SENT: " in line:
-                        trusted_log.append({"text": line.split(" SENT: ", 1)[1].strip(), "is_self": True})
+                        text = line.split(" SENT: ", 1)[1].strip()
+                        trusted_log.append({"text": text, "is_self": True, "time_abs": last_log_time})
                     elif " NEW MSG: " in line:
                         content = line.split(" NEW MSG: ", 1)[1].strip()
                         text = content.rsplit(" at ", 1)[0] if " at " in content else content
-                        trusted_log.append({"text": text, "is_self": False})
+                        trusted_log.append({"text": text, "is_self": False, "time_abs": last_log_time})
 
-        # 1. Rebuild our sent messages from log
+        # 1. Rebuild sent_messages (to avoid echoing ourselves)
         self.state["sent_messages"] = [m["text"].strip() for m in trusted_log if m["is_self"]]
         
-        # 2. Supplement from DOM (especially for identity tags)
+        # Supplement with DOM (for historical identity check)
         for m in reversed(msgs[:30]):
             if m["is_self_dom"] and m["text"].strip() not in self.state["sent_messages"]:
                 self.state["sent_messages"].append(m["text"].strip())
 
-        # 3. Startup Decision
-        latest = msgs[0]
-        # If latest is in our 'sent' list (log or DOM), we've already handled it.
-        is_hermes_last = latest["text"].strip() in self.state["sent_messages"]
-        
-        self.state["last_processed_msg"] = latest["text"]
-        self.state["last_processed_time"] = latest["time"]
-
-        if is_hermes_last:
-            self.log(f"Memory Rebuilt: Hermes spoke last. Status: Waiting.")
-            self.state["startup_action_needed"] = False
+        # 2. Determine last processed message
+        # If the last thing in log was a SENT, then the NEW MSG before it is considered 'processed'.
+        # If the last thing in log was a NEW MSG, then we have an unprocessed item.
+        if trusted_log:
+            last_entry = trusted_log[-1]
+            if last_entry["is_self"]:
+                # We spoke last. Find the NEW MSG that triggered this.
+                last_new_msg = next((m for m in reversed(trusted_log) if not m["is_self"]), None)
+                if last_new_msg:
+                    self.state["last_processed_msg"] = last_new_msg["text"]
+                    # We don't have the original LINE timestamp in the log reliably for processed checks,
+                    # so we rely on content matching or just being in 'waiting' mode.
+                self.log(f"Rebuild: Hermes spoke last ('{last_entry['text'][:30]}...'). Status: Waiting.")
+                self.state["startup_action_needed"] = False
+                
+                # 3. Reconstruct Exit Timer from last SENT content
+                reply_text = last_entry["text"]
+                if any(kw in reply_text for kw in ["俊羽確認", "委託人確認"]):
+                    self.state["exit_at"] = last_entry["time_abs"] + 120
+                elif any(kw in reply_text.lower() for kw in ["再見", "拜拜", "掰掰", "晚點回覆您"]):
+                    self.state["exit_at"] = last_entry["time_abs"] + 120
+                else:
+                    # Default finish timer if task seems done
+                    if any(kw in reply_text for kw in ["預約成功", "好的", "謝謝"]):
+                        self.state["exit_at"] = last_entry["time_abs"] + 300
+            else:
+                # User spoke last.
+                self.log(f"Rebuild: Other party spoke last ('{last_entry['text'][:30]}...'). Status: Need to respond.")
+                self.state["startup_action_needed"] = True
+                self.state["last_processed_msg"] = "___RESTART_RECOVERY___"
         else:
-            self.log(f"Memory Rebuilt: Other party spoke last. Status: Need to respond.")
-            self.state["startup_action_needed"] = True
-
-        # FORCE proactive start for "Start/Initiate" tasks ONLY if we haven't sent anything yet
-        if not self.state["sent_messages"] and ("啟動" in self.task_description or "開始" in self.task_description):
-            self.log("New 'Start' task detected. Forcing proactive action.")
-            self.state["startup_action_needed"] = True
-            self.state["exit_at"] = None 
+            # First run
+            self.log("Rebuild: No existing log. Fresh start.")
+            self.state["startup_action_needed"] = ("啟動" in self.task_description or "開始" in self.task_description)
 
     async def generate_and_send_reply(self, msgs):
         trusted_history = self.get_trusted_history_from_log()
@@ -135,18 +160,19 @@ class LineProxyEngine:
             await send_message(self.page, reply_text)
             self.log(f"SENT: {reply_text}")
             
-            # Update state after sending
+            # Update state
             latest = msgs[0]
             self.state["last_processed_msg"] = latest["text"]
             self.state["last_processed_time"] = latest["time"]
             self.state["sent_messages"].append(reply_text.strip())
             
+            # Set exit timer
+            now = time.time()
             if any(kw in reply_text for kw in ["俊羽確認", "委託人確認"]):
-                self.state["exit_at"] = time.time() + 120
+                self.state["exit_at"] = now + 120
             elif any(kw in reply_text.lower() for kw in ["再見", "拜拜", "掰掰", "晚點回覆您"]):
-                self.state["exit_at"] = time.time() + 120
+                self.state["exit_at"] = now + 120
             
-            self.save_state()
         except Exception as e:
             self.log(f"Error in generate_and_send_reply: {e}")
 
@@ -159,11 +185,10 @@ class LineProxyEngine:
             self.log("No messages found.")
             return
 
-        self.rebuild_memory(msgs)
+        self.rebuild_memory_and_state(msgs)
 
-        # Proactive Start: only if needed and not already hermes
-        if self.state.get("startup_action_needed") or "啟動" in self.task_description or "開始" in self.task_description:
-            # Re-check if latest is hermes before proactive start to avoid race conditions
+        if self.state.get("startup_action_needed"):
+            # Final check to avoid race condition
             msgs = await extract_messages(self.page)
             if msgs[0]["text"].strip() not in self.state["sent_messages"]:
                 self.log("Proactive Start: Generating initial response...")
@@ -181,14 +206,14 @@ class LineProxyEngine:
             
             latest = msgs[0]
             is_hermes = latest["text"].strip() in self.state["sent_messages"]
-            is_new = latest["text"] != self.state.get("last_processed_msg") or latest["time"] != self.state.get("last_processed_time")
+            # To be extra safe with content-only matching:
+            is_new = latest["text"] != self.state.get("last_processed_msg")
             
             if not is_hermes and is_new:
                 incoming_text = latest["text"]
                 incoming_time = latest["time"]
                 self.log(f"NEW MSG: {incoming_text} at {incoming_time}")
                 self.state["exit_at"] = None
-                
                 await self.generate_and_send_reply(msgs)
 
             await asyncio.sleep(5)
