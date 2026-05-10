@@ -91,42 +91,18 @@ async def test_get_line_messages_tool():
             assert data["messages"][0]["text"] == "msg2"
 
 @pytest.mark.asyncio
-async def test_start_proxy_task_tool_background():
-    with patch("mcp_server.subprocess.Popen") as mock_popen, \
-         patch("mcp_server.PIDLock") as mock_lock, \
-         patch("builtins.open", MagicMock()):
-        
-        mock_lock.return_value.acquire.return_value = True
-        mock_popen.return_value.pid = 1234
-        os.environ["GEMINI_API_KEY"] = "fake_key"
-        
-        from mcp_server import start_proxy_task
-        result = await start_proxy_task(chat_name="test_chat", task="test_task")
-        data = json.loads(result)
-        
-        assert data["status"] == "started"
-        assert data["pid"] == 1234
-        assert mock_popen.called
+async def test_run_task_tool():
+    with patch("mcp_server.subprocess.run") as mock_run:
 
-@pytest.mark.asyncio
-async def test_get_task_status_tool():
-    with patch("mcp_server.PIDLock") as mock_lock, \
-         patch("mcp_server.Path.exists", return_value=True), \
-         patch("builtins.open", MagicMock()) as mock_open:
-        
-        # Mock file read
-        mock_open.return_value.__enter__.return_value.readlines.return_value = ["line1\n", "line2\n"]
-        
-        # Test running state (lock held)
-        mock_lock.return_value.acquire.return_value = False
-        from mcp_server import get_task_status
-        result = await get_task_status(chat_name="test_chat")
+        mock_run.return_value.returncode = 0
+        mock_run.return_value.stdout = "task completed successfully"
+        mock_run.return_value.stderr = ""
+        os.environ["GEMINI_API_KEY"] = "fake_key"
+
+        from mcp_server import run_task
+        result = await run_task(chat_name="test_chat", task="test_task")
         data = json.loads(result)
-        assert data["status"] == "running"
-        assert "line1" in data["last_log"]
-        
-        # Test not running state (lock acquired)
-        mock_lock.return_value.acquire.return_value = True
-        result = await get_task_status(chat_name="test_chat")
-        data = json.loads(result)
-        assert data["status"] == "not_running"
+
+        assert data["status"] == "completed"
+        assert "task completed successfully" in data["stdout"]
+        assert mock_run.called

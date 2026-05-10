@@ -167,10 +167,6 @@ async def run_task(chat_name: str, task: str, port: int = CDP_PORT, model: str =
     if not api_key:
         return "Error: GEMINI_API_KEY not found."
 
-    lock = PIDLock(chat_name)
-    if not lock.acquire():
-        return f"Error: Chat '{chat_name}' is already being managed (lock exists)."
-    
     venv_python = "/home/ubuntu/line-proxy/venv/bin/python3"
     run_script = os.path.join(os.path.dirname(__file__), "run_engine.py")
 
@@ -190,8 +186,6 @@ async def run_task(chat_name: str, task: str, port: int = CDP_PORT, model: str =
             text=True,
             check=False
         )
-        
-        lock.release()
         
         return json.dumps({
             "status": "completed" if result.returncode == 0 else "failed",
