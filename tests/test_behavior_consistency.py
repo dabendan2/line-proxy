@@ -43,7 +43,7 @@ class MockResponse:
 
 @pytest.mark.asyncio
 async def test_reason_consulting_mapping(mock_page):
-    mock_genai_client_inst.models.generate_content.return_value = MockResponse('問問俊羽。[END, reason="consulting", report="詢問電話"]')
+    mock_genai_client_inst.models.generate_content.return_value = MockResponse('問問俊羽。[AGENT_INPUT_NEEDED, reason="詢問電話"]')
     
     proxy = LineProxyEngine(page=mock_page, chat_name="test", task="訂位", api_key="fake")
     now = time.time()
@@ -51,7 +51,7 @@ async def test_reason_consulting_mapping(mock_page):
     
     assert proxy.state["exit_at"] is not None
     assert 110 < (proxy.state["exit_at"] - now) < 130
-    assert proxy.state["final_report"] == "詢問電話"
+    assert proxy.state["final_report"] == "AGENT_INPUT_NEEDED: 詢問電話"
 
 @pytest.mark.asyncio
 async def test_no_redundant_intro_logic(mock_page):

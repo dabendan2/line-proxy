@@ -1,1 +1,5 @@
+#!/usr/bin/env sh
+. "$(dirname -- "$0")/_/husky.sh"
+
+echo " [Husky] 執行預選檢查... ⚠️ 禁止使用 --no-verify 跳過測試 ⚠️"
 npm test

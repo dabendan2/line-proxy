@@ -2,3 +2,5 @@ playwright
 google-generativeai
 pytest
 pytest-asyncio
+psutil
+python-dotenv
