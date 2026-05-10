@@ -35,12 +35,22 @@ class BrowserManager:
         return None
 
     def prepare_instance(self):
-        # 1. Check Port
+        # 1. Check if port is already providing a valid CDP endpoint
+        try:
+            import httpx
+            response = httpx.get(f"http://localhost:{self.port}/json/version", timeout=1)
+            if response.status_code == 200:
+                return {"status": "success", "message": "Browser already running and responsive.", "port": self.port, "cdp_url": f"http://localhost:{self.port}"}
+        except Exception:
+            pass
+
+        # 2. Check Port occupation by other processes
         occupied_pid = self.is_port_in_use()
         if occupied_pid:
-            return {"status": "error", "message": f"Port {self.port} occupied by PID {occupied_pid}"}
+            # If it's occupied but not responding to CDP, it's a zombie or another app
+            return {"status": "error", "message": f"Port {self.port} occupied by non-responsive PID {occupied_pid}"}
 
-        # 2. Check Lock
+        # 3. Check Lock
         active_pid = self.check_singleton_lock()
         if active_pid:
             return {"status": "error", "message": f"Profile locked by active PID {active_pid}"}

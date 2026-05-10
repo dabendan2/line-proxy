@@ -110,7 +110,7 @@ class LineProxyEngine:
             
             latest_msgs = await line_utils.extract_messages(self.page)
             if latest_msgs and isinstance(latest_msgs, list) and len(latest_msgs) > 0:
-                self.state["last_processed_msg"] = latest_msgs[0].get("text", "")
+                self.state["last_processed_msg"] = latest_msgs[-1].get("text", "")
                 
         except Exception as e:
             self.history.write_log(f"Error in generate_and_send_reply: {e}")
