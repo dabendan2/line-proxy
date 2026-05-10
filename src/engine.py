@@ -145,8 +145,7 @@ class LineProxyEngine:
             return
 
         self.state.update(self.history.rebuild_state(msgs, self.task_description))
-        if self.state.get("startup_action_needed"):
-            await self.generate_and_send_reply(msgs)
+        await self.generate_and_send_reply(msgs)
 
         while True:
             if self.state.get("exit_at") and time.time() >= self.state["exit_at"]:

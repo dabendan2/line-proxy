@@ -37,7 +37,7 @@ def main():
     for proc in psutil.process_iter(['pid', 'cmdline']):
         try:
             cmdline = " ".join(proc.info['cmdline'] or [])
-            if "run.py" in cmdline and args.chat in cmdline:
+            if "run_engine.py" in cmdline and args.chat in cmdline:
                 print(f"Found stray process {proc.info['pid']} matching chat name. Killing...")
                 proc.kill()
         except (psutil.NoSuchProcess, psutil.AccessDenied):

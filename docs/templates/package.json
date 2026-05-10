@@ -1,0 +1,11 @@
+{
+  "name": "line-proxy",
+  "version": "1.0.0",
+  "scripts": {
+    "test": "./venv/bin/python run_line_tests.py",
+    "prepare": "husky install"
+  },
+  "devDependencies": {
+    "husky": "^8.0.0"
+  }
+}
