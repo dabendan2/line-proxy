@@ -8,31 +8,36 @@ async def get_line_page(context):
             return page
     return None
 
-async def extract_messages(page):
-    script = """
-    () => {
-        const results = [];
-        const items = document.querySelectorAll('.message-module__content_inner__j-iko, [class*="message_content"], [class*="bubble"]');
-        items.forEach(msg => {
-            const textEl = msg.innerText.trim();
-            const timeEl = msg.parentElement.querySelector('[class*="metaInfo-module__meta"], [class*="time"]');
-            
-            if (textEl) {
-                const isSelf = msg.closest('.mdNM08MsgSelf') !== null || 
-                               msg.closest('[class*="Self"]') !== null ||
-                               msg.parentElement.closest('[class*="Self"]') !== null ||
-                               window.getComputedStyle(msg.parentElement).textAlign === 'right';
+HERMES_PREFIX = "[Hermes]"
 
-                results.push({
-                    text: textEl,
-                    time: timeEl ? timeEl.textContent.trim() : "",
-                    is_self_dom: isSelf
-                });
-            }
-        });
-        // Newest at index 0
+async def extract_messages(page):
+    script = f"""
+    () => {{
+        const results = [];
+        const prefix = "{HERMES_PREFIX}";
+        const items = document.querySelectorAll('.message-module__content_inner__j-iko, [class*="message_content"], [class*="bubble"]');
+        items.forEach(msg => {{
+            const clone = msg.cloneNode(true);
+            const meta = clone.querySelectorAll('[class*="metaInfo"], [class*="time"], [class*="Read"]');
+            meta.forEach(m => m.remove());
+            
+            let textEl = clone.innerText.trim();
+            textEl = textEl.replace(/\\s*(Read|\\d+:\\d+\\s*(AM|PM|上午|下午))\\s*$/i, "").trim();
+            
+            if (textEl) {{
+                const isSelfByPrefix = textEl.startsWith(prefix);
+                const isSelfByDom = msg.closest('.mdNM08MsgSelf') !== null || 
+                                   msg.closest('[class*="Self"]') !== null;
+
+                results.push({{
+                    text: textEl.replace(prefix, "").trim(), // Hide prefix from engine's logic
+                    is_self_dom: isSelfByPrefix || isSelfByDom,
+                    has_hermes_prefix: isSelfByPrefix
+                }});
+            }}
+        }});
         return results;
-    }
+    }}
     """
     try:
         data = await page.evaluate(script)
@@ -44,5 +49,9 @@ async def extract_messages(page):
 async def send_message(page, text):
     message_area = page.locator('.message_input, [contenteditable="true"], textarea').first
     await message_area.click()
-    await message_area.fill(text)
+    
+    # Append the visible prefix
+    prefixed_text = HERMES_PREFIX + " " + text
+    
+    await message_area.fill(prefixed_text)
     await page.keyboard.press("Enter")

@@ -5,7 +5,9 @@ from datetime import datetime
 
 class HistoryManager:
     def __init__(self, chat_name, last_ignored_msg=None, last_ignored_time=None):
-        self.log_path = f"/tmp/line_proxy_{chat_name}.log"
+        log_dir = os.path.expanduser("~/.line-proxy/logs")
+        os.makedirs(log_dir, exist_ok=True)
+        self.log_path = os.path.join(log_dir, f"{chat_name}.log")
         self.last_ignored_msg = last_ignored_msg
         self.last_ignored_time = last_ignored_time
 
@@ -72,40 +74,49 @@ class HistoryManager:
                     state["last_processed_msg"] = last_new_msg["text"]
                 state["startup_action_needed"] = False
                 
-                reply_text = last_entry["text"]
-                if any(kw in reply_text for kw in ["俊羽確認", "委託人確認", "再見", "拜拜", "掰掰", "晚點回覆您"]):
-                    state["exit_at"] = last_entry["time_abs"] + 120
-                elif any(kw in reply_text for kw in ["預約成功", "好的", "謝謝"]):
-                    state["exit_at"] = last_entry["time_abs"] + 300
+                # Note: exit_at logic moved to tag-based system in engine.py
             else:
                 state["startup_action_needed"] = True
                 state["last_processed_msg"] = "___RESTART_RECOVERY___"
-        else:
-            # First run: Use DOM to decide if we need to jump in immediately
-            if msgs and not msgs[0]["is_self_dom"]:
+        # First run: Use DOM to decide if we need to jump in immediately
+        if msgs:
+            latest = msgs[0]
+            is_hermes = latest.get("has_hermes_prefix", False) or latest.get("is_self_dom", False)
+            
+            if not is_hermes:
                 state["startup_action_needed"] = True
                 state["last_processed_msg"] = "___FRESH_TAKEOVER___"
             else:
-                state["startup_action_needed"] = ("啟動" in task_description or "開始" in task_description)
+                state["startup_action_needed"] = False
+                state["last_processed_msg"] = latest["text"]
+        else:
+            state["startup_action_needed"] = ("啟動" in task_description or "開始" in task_description)
 
         return state
 
     def get_full_context(self, msgs, sent_messages):
-        trusted_history = self.get_trusted_history()
-        log_history_texts = [m['text'] for m in trusted_history]
+        # We NO LONGER append log content to the context to avoid duplication.
+        # We rely solely on the DOM for conversation history, which is the most accurate
+        # representation of what the user sees.
         
         dom_history = []
         found_start = False if self.last_ignored_msg else True
+        hermes_prefix = "[Hermes]"
         
         for m in reversed(msgs[:50]):
-            if not found_start:
-                if m["text"] == self.last_ignored_msg and (not self.last_ignored_time or self.last_ignored_time in m["time"]):
-                    found_start = True
-                else:
-                    continue
-            
-            if m["text"] not in log_history_texts:
-                sender = "Hermes (AI Proxy)" if (m["text"].strip() in sent_messages) else "User/Staff"
-                dom_history.append(f"{sender}: {m['text']}")
+            raw_text = m["text"].strip()
+            # Normalize text for boundary comparison
+            clean_text = raw_text.replace(hermes_prefix, "").strip()
 
-        return dom_history + [f"{m['sender']}: {m['text']}" for m in trusted_history]
+            if not found_start:
+                if clean_text == self.last_ignored_msg.strip():
+                    found_start = True
+                continue
+            
+            # Determine sender based on the prefix we physically injected into the DOM
+            is_hermes = m.get("has_hermes_prefix", False) or (raw_text.startswith(hermes_prefix))
+            sender = "Hermes (AI Proxy)" if is_hermes else "User/Staff"
+            
+            dom_history.append(f"{sender}: {clean_text}")
+
+        return dom_history

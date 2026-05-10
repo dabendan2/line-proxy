@@ -1,4 +1,14 @@
 import asyncio
+
+import os
+from pathlib import Path
+from dotenv import load_dotenv
+
+# 自動載入 ~/.hermes/.env
+env_path = Path.home() / ".hermes" / ".env"
+if env_path.exists():
+    load_dotenv(dotenv_path=env_path)
+
 import argparse
 import os
 import sys

@@ -6,7 +6,7 @@
     "test": "tests"
   },
   "scripts": {
-    "test": "python3 run_line_tests.py",
+    "test": "./venv/bin/python run_line_tests.py",
     "prepare": "husky install"
   },
   "keywords": [],
