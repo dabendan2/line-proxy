@@ -1,5 +1,4 @@
 import asyncio
-
 import os
 from pathlib import Path
 from dotenv import load_dotenv
@@ -15,6 +14,7 @@ import sys
 from playwright.async_api import async_playwright
 from engine import LineProxyEngine
 from line_utils import get_line_page
+from lock_manager import PIDLock
 
 async def main():
     parser = argparse.ArgumentParser(description="Hermes Generalized LINE Proxy")
@@ -25,10 +25,16 @@ async def main():
     parser.add_argument("--model", default="gemini-3-flash-preview", help="Gemini model name")
     args = parser.parse_args()
 
+    # 1. Acquire PID Lock to prevent duplicates
+    lock = PIDLock(args.chat)
+    if not lock.acquire():
+        sys.exit(0) # Silent exit if already running
+
     # Load API Key
-    api_key = os.environ.get("GOOGLE_API_KEY")
+    api_key = os.environ.get("GOOGLE_API_KEY") or os.environ.get("GEMINI_API_KEY")
     if not api_key:
         print("Error: GOOGLE_API_KEY not set.")
+        lock.release()
         return
 
     async with async_playwright() as p:
@@ -41,6 +47,7 @@ async def main():
             if not page:
                 print("Error: LINE page not found.")
                 await browser.close()
+                lock.release()
                 return
 
             engine = LineProxyEngine(
@@ -53,10 +60,15 @@ async def main():
                 api_key=api_key
             )
             
+            # Pass lock to engine so it can release on graceful exit
+            engine.lock = lock
             await engine.run()
+            
             await browser.close()
         except Exception as e:
             print(f"Runtime Error: {e}")
+        finally:
+            lock.release()
 
 if __name__ == "__main__":
     asyncio.run(main())
