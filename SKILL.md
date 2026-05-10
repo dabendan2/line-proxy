@@ -1,21 +1,40 @@
 ---
 name: line-proxy
-description: Expert guide for the LINE Proxy MCP Server - Async automation, fast messaging, and history extraction.
-version: 2.0.0
+description: Expert guide for the LINE Proxy MCP Server - Blocking automation, terminal notifications, and history extraction.
+version: 3.0.0
 tags: [line, mcp, automation, proxy]
 ---
 
 # LINE Proxy MCP Server
 
-This server provides direct tools to interact with the LINE Chrome Extension via CDP (Port 9222). It supports both lightweight messaging and full-autonomous AI proxy tasks in the background.
+This server provides direct tools to interact with the LINE Chrome Extension via CDP (Port 9222). It is optimized for **Hermes Terminal Notifications**, ensuring proactive feedback for all automated tasks.
+
+## Core Implementation Pattern: Blocking + Notifications
+
+The LINE Proxy has been refactored to use a **Blocking Tool Pattern**. This allows the Hermes Agent system to natively handle backgrounding and auto-notifications.
+
+### Standard Calling Convention
+Always use the `terminal` tool with `background=true` and `notify_on_complete=true` to start long-running tasks:
+
+```python
+terminal(
+    command="npx mcporter call line_proxy.run_task chat_name:\"NAME\" task:\"DESCRIPTION\"",
+    background=true,
+    notify_on_complete=true
+)
+```
+
+**Why?**
+- **Proactive Feedback**: Hermes will automatically alert you via Telegram/Messaging when the task finishes.
+- **Log Capture**: The task's output (including final board states or booking confirmations) is captured natively.
+- **Simplified Lifecycle**: No need to manually poll PIDs or logs.
 
 ## Tool Reference (MCP)
 
 ### 1. Instance Management
 - **`prepare_line_instance(port, profile_name)`**:
-  - Ensures Chromium is running with the correct profile.
-  - Handles singleton locks.
-  - **Usage**: Call this first if the browser is not running.
+  - Ensures Chromium is running with the correct profile and extension.
+  - Call this first if the browser is not active.
 
 ### 2. Chat Navigation & Inspection
 - **`find_chat(chat_name)`**:
@@ -24,45 +43,28 @@ This server provides direct tools to interact with the LINE Chrome Extension via
 - **`get_line_messages(chat_name, limit)`**:
   - **Primary tool for reading context.**
   - Returns a JSON list of recent messages: `[{"text": "...", "is_self_dom": bool, "timestamp": "..."}]`.
-  - Much faster and more accurate than OCR/Vision.
+  - The list is **chronological (Oldest First)**. The latest message is `msgs[-1]`.
 
 ### 3. Messaging
 - **`send_line_message(chat_name, text)`**:
-  - **Lightweight & Fast**.
+  - Lightweight and fast.
   - Automatically adds the `[Hermes]` prefix.
-  - Use this for simple replies or status updates.
+  - Use for one-off replies or status updates.
 
-### 4. Autonomous Background Tasks
-- **`start_proxy_task(chat_name, task)`**:
-  - **Asynchronous (Non-blocking)**.
-  - Spawns a background engine (`run_engine.py`) to manage a complex conversation.
-  - Returns a `PID` immediately.
-  - Use this for tasks that may take minutes or hours (e.g., restaurant bookings).
-- **`get_task_status(chat_name)`**:
-  - Checks if the background engine is still running.
-  - Returns the last 10 lines of the task log.
+### 4. Interactive Tasks (The "Brain")
+- **`run_task(chat_name, task)`**:
+  - **Synchronous (Blocking)**.
+  - Blocks until the AI engine completes the task (e.g., win/loss, booking confirmed, or exit).
+  - Returns a final report including stdout/stderr.
+  - **Mandatory**: Must be called via the `terminal` background pattern described above.
 
-## Best Practices
+## Redirection & Documentation Links
 
-### Context Handling
-- Always use `get_line_messages` to verify the state before sending a message.
-- The extraction returns messages in **chronological order** (Oldest First). The latest message is at the end of the list.
+The following skills are now integrated and should follow this central documentation:
+- `line-agent-proxy-orchestration`: High-level logic and etiquette.
+- `line-automation`: General LINE strategies.
+- `line-extension-automation`: Technical CDP/Shadow-DOM details.
 
-### Background Task Lifecycle
-1. Start with `start_proxy_task`.
-2. The agent turn ends immediately.
-3. Check progress later using `get_task_status`.
-4. Logs are stored at `~/.line-proxy/logs/{chat_name}.log`.
-
-### Manual CLI Usage
-For debugging or manual intervention:
-```bash
-# Start an autonomous task manually
-/home/ubuntu/line-proxy/venv/bin/python3 /home/ubuntu/line-proxy/src/run_engine.py --chat "Target" --task "Goal"
-```
-
-## Maintenance
-Run tests to verify functionality:
-```bash
-/home/ubuntu/line-proxy/venv/bin/pytest /home/ubuntu/line-proxy/tests/test_mcp_server.py
-```
+## Maintenance & Logs
+- **Logs**: `~/.line-proxy/logs/{chat_name}.log` (contains detailed engine thought processes).
+- **Tests**: `/home/ubuntu/line-proxy/venv/bin/pytest /home/ubuntu/line-proxy/tests/`

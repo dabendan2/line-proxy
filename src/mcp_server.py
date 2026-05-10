@@ -156,10 +156,12 @@ async def get_line_messages(chat_name: str, limit: int = 10, port: int = CDP_POR
             return f"Error: {str(e)}"
 
 @mcp.tool()
-async def start_proxy_task(chat_name: str, task: str, port: int = CDP_PORT, model: str = DEFAULT_MODEL):
+async def run_task(chat_name: str, task: str, port: int = CDP_PORT, model: str = DEFAULT_MODEL):
     """
-    Starts the AI proxy engine for a specific chat and task as a background process.
-    Returns immediately with process info. Use get_task_status to check progress.
+    Runs an AI proxy task synchronously for a specific chat.
+    This tool blocks until the task is completed or an error occurs.
+    Use Hermes' terminal(background=true, notify_on_complete=true) to run this 
+    if you need non-blocking behavior with completion notifications.
     """
     api_key = os.environ.get("GOOGLE_API_KEY") or os.environ.get("GEMINI_API_KEY")
     if not api_key:
@@ -168,11 +170,9 @@ async def start_proxy_task(chat_name: str, task: str, port: int = CDP_PORT, mode
     lock = PIDLock(chat_name)
     if not lock.acquire():
         return f"Error: Chat '{chat_name}' is already being managed (lock exists)."
-    lock.release()
-
+    
     venv_python = "/home/ubuntu/line-proxy/venv/bin/python3"
     run_script = os.path.join(os.path.dirname(__file__), "run_engine.py")
-    log_file = LOG_DIR / f"{chat_name}.log"
 
     cmd = [
         venv_python, run_script,
@@ -183,46 +183,25 @@ async def start_proxy_task(chat_name: str, task: str, port: int = CDP_PORT, mode
     ]
 
     try:
-        with open(log_file, "a") as f:
-            process = subprocess.Popen(
-                cmd,
-                stdout=f,
-                stderr=subprocess.STDOUT,
-                start_new_session=True
-            )
+        # Run synchronously using subprocess.run
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            check=False
+        )
+        
+        lock.release()
         
         return json.dumps({
-            "status": "started",
-            "chat_name": chat_name,
-            "pid": process.pid,
-            "log_path": str(log_file)
+            "status": "completed" if result.returncode == 0 else "failed",
+            "exit_code": result.returncode,
+            "stdout": result.stdout,
+            "stderr": result.stderr
         })
     except Exception as e:
-        return f"Error launching background task: {str(e)}"
-
-@mcp.tool()
-async def get_task_status(chat_name: str):
-    """
-    Checks the status of a background task for a given chat.
-    Returns PID, whether it's still running, and the last few log lines.
-    """
-    lock = PIDLock(chat_name)
-    is_running = not lock.acquire()
-    if not is_running:
         lock.release()
-
-    log_file = LOG_DIR / f"{chat_name}.log"
-    last_log = "Log file not found."
-    if log_file.exists():
-        with open(log_file, "r") as f:
-            lines = f.readlines()
-            last_log = "".join(lines[-10:]) if lines else "Log is empty."
-
-    return json.dumps({
-        "status": "running" if is_running else "not_running",
-        "chat_name": chat_name,
-        "last_log": last_log
-    })
+        return f"Error running task: {str(e)}"
 
 if __name__ == "__main__":
     mcp.run()
