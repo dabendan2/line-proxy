@@ -1,6 +1,7 @@
 import asyncio
 import os
 import json
+import subprocess
 from pathlib import Path
 from dotenv import load_dotenv
 from mcp.server.fastmcp import FastMCP
@@ -9,17 +10,29 @@ from engine import LineProxyEngine
 import line_utils
 from playwright.async_api import async_playwright
 from lock_manager import PIDLock
+from config import CDP_PORT, DEFAULT_PROFILE, DEFAULT_MODEL, LOG_DIR, SCREENSHOT_DIR, \
+    ENV_PATH, VIEWPORT_WIDTH, VIEWPORT_HEIGHT, SEARCH_INPUT_SELECTOR, SEARCH_TIMEOUT
 
 # Load .env
-env_path = Path.home() / ".hermes" / ".env"
-if env_path.exists():
-    load_dotenv(dotenv_path=env_path)
+if ENV_PATH.exists():
+    load_dotenv(dotenv_path=ENV_PATH)
 
 # Create the MCP server
 mcp = FastMCP("LINE Proxy Server")
 
+async def get_page(port):
+    """Helper to connect to browser and get LINE page."""
+    try:
+        browser = await async_playwright().start()
+        cdp_browser = await browser.chromium.connect_over_cdp(f"http://localhost:{port}")
+        context = cdp_browser.contexts[0]
+        page = await line_utils.get_line_page(context)
+        return browser, cdp_browser, page
+    except Exception as e:
+        return None, None, str(e)
+
 @mcp.tool()
-async def prepare_line_instance(port: int = 9222, profile_name: str = "line_booking_session"):
+async def prepare_line_instance(port: int = CDP_PORT, profile_name: str = DEFAULT_PROFILE):
     """
     Ensures a clean LINE Chromium instance is running on the specified port.
     Handles singleton locks and waits for readiness.
@@ -29,7 +42,7 @@ async def prepare_line_instance(port: int = 9222, profile_name: str = "line_book
     return json.dumps(result)
 
 @mcp.tool()
-async def find_chat(chat_name: str, port: int = 9222):
+async def find_chat(chat_name: str, port: int = CDP_PORT):
     """
     Finds and opens a specific chat window in the LINE extension.
     Shadow-DOM aware and handles profile overlay transitions.
@@ -44,15 +57,14 @@ async def find_chat(chat_name: str, port: int = 9222):
                 return "Error: LINE extension page not found."
 
             await page.bring_to_front()
-            await page.set_viewport_size({"width": 1600, "height": 1000})
+            await page.set_viewport_size({"width": VIEWPORT_WIDTH, "height": VIEWPORT_HEIGHT})
 
             # 1. Search for contact
-            search_selector = "input[placeholder*='Search'], input[placeholder*='搜尋'], .search_input, input[type='text']"
-            await page.wait_for_selector(search_selector, timeout=10000)
-            await page.click(search_selector)
+            await page.wait_for_selector(SEARCH_INPUT_SELECTOR, timeout=SEARCH_TIMEOUT)
+            await page.click(SEARCH_INPUT_SELECTOR)
             await page.keyboard.press("Control+A")
             await page.keyboard.press("Backspace")
-            await page.type(search_selector, chat_name)
+            await page.type(SEARCH_INPUT_SELECTOR, chat_name)
             await asyncio.sleep(2)
 
             # 2. Use find_line_contact logic (Shadow DOM aware)
@@ -63,32 +75,24 @@ async def find_chat(chat_name: str, port: int = 9222):
             status = await page.evaluate(js_code, chat_name)
             
             await asyncio.sleep(2)
-            screenshot_path = f"/home/ubuntu/.line-proxy/last_find_{chat_name}.png"
-            os.makedirs(os.path.dirname(screenshot_path), exist_ok=True)
+            screenshot_path = SCREENSHOT_DIR / f"last_find_{chat_name}.png"
             await page.screenshot(path=screenshot_path)
             
             return json.dumps({
                 "status": "success" if status != "not_found" else "not_found",
                 "detail": status,
-                "screenshot": screenshot_path
+                "screenshot": str(screenshot_path)
             })
         except Exception as e:
             return f"Error: {str(e)}"
 
 @mcp.tool()
-async def start_proxy_task(chat_name: str, task: str, port: int = 9222, model: str = "gemini-3-flash-preview"):
+async def send_line_message(chat_name: str, text: str, port: int = CDP_PORT):
     """
-    Starts the AI proxy engine for a specific chat and task.
-    Runs until the task is complete or user input is needed.
+    Directly sends a message to the specified chat. 
+    Assumes the chat is already selected or can be found.
+    Adds the standard [Hermes] prefix.
     """
-    api_key = os.environ.get("GOOGLE_API_KEY") or os.environ.get("GEMINI_API_KEY")
-    if not api_key:
-        return f"Error: GEMINI_API_KEY not found in environment. ENV keys: {list(os.environ.keys())}"
-
-    lock = PIDLock(chat_name)
-    if not lock.acquire():
-        return f"Error: Chat '{chat_name}' is already being managed by another process."
-
     async with async_playwright() as p:
         try:
             browser = await p.chromium.connect_over_cdp(f"http://localhost:{port}")
@@ -96,28 +100,129 @@ async def start_proxy_task(chat_name: str, task: str, port: int = 9222, model: s
             page = await line_utils.get_line_page(context)
             
             if not page:
-                lock.release()
-                return "Error: LINE page not found."
+                return "Error: LINE extension page not found."
 
-            engine = LineProxyEngine(
-                page=page,
-                chat_name=chat_name,
-                task=task,
-                model_name=model,
-                api_key=api_key
-            )
-            engine.lock = lock
+            await page.bring_to_front()
             
-            await engine.run() 
+            # Select chat
+            selection = await line_utils.select_chat(page, chat_name)
+            if selection["status"] not in ["success"]:
+                return json.dumps(selection)
+
+            # Send message
+            await line_utils.send_message(page, text)
             
-            report = engine.state.get("final_report", "Task cycle completed.")
             return json.dumps({
-                "status": "completed",
-                "report": report
+                "status": "success",
+                "chat": chat_name,
+                "text": text
             })
         except Exception as e:
-            lock.release()
             return f"Error: {str(e)}"
+
+@mcp.tool()
+async def get_line_messages(chat_name: str, limit: int = 10, port: int = CDP_PORT):
+    """
+    Retrieves the most recent N messages from the specified chat.
+    Returns a list of objects with text, sender (is_self), and timestamp.
+    """
+    async with async_playwright() as p:
+        try:
+            browser = await p.chromium.connect_over_cdp(f"http://localhost:{port}")
+            context = browser.contexts[0]
+            page = await line_utils.get_line_page(context)
+            
+            if not page:
+                return "Error: LINE extension page not found."
+
+            await page.bring_to_front()
+            
+            # Select chat
+            selection = await line_utils.select_chat(page, chat_name)
+            if selection["status"] not in ["success"]:
+                return json.dumps(selection)
+
+            # Extract messages
+            messages = await line_utils.extract_messages(page)
+            recent = messages[-limit:] if limit > 0 else messages
+            
+            return json.dumps({
+                "status": "success",
+                "chat": chat_name,
+                "count": len(recent),
+                "messages": recent
+            })
+        except Exception as e:
+            return f"Error: {str(e)}"
+
+@mcp.tool()
+async def start_proxy_task(chat_name: str, task: str, port: int = CDP_PORT, model: str = DEFAULT_MODEL):
+    """
+    Starts the AI proxy engine for a specific chat and task as a background process.
+    Returns immediately with process info. Use get_task_status to check progress.
+    """
+    api_key = os.environ.get("GOOGLE_API_KEY") or os.environ.get("GEMINI_API_KEY")
+    if not api_key:
+        return "Error: GEMINI_API_KEY not found."
+
+    lock = PIDLock(chat_name)
+    if not lock.acquire():
+        return f"Error: Chat '{chat_name}' is already being managed (lock exists)."
+    lock.release()
+
+    venv_python = "/home/ubuntu/line-proxy/venv/bin/python3"
+    run_script = os.path.join(os.path.dirname(__file__), "run_engine.py")
+    log_file = LOG_DIR / f"{chat_name}.log"
+
+    cmd = [
+        venv_python, run_script,
+        "--chat_name", chat_name,
+        "--task", task,
+        "--port", str(port),
+        "--model", model
+    ]
+
+    try:
+        with open(log_file, "a") as f:
+            process = subprocess.Popen(
+                cmd,
+                stdout=f,
+                stderr=subprocess.STDOUT,
+                start_new_session=True
+            )
+        
+        return json.dumps({
+            "status": "started",
+            "chat_name": chat_name,
+            "pid": process.pid,
+            "log_path": str(log_file)
+        })
+    except Exception as e:
+        return f"Error launching background task: {str(e)}"
+
+@mcp.tool()
+async def get_task_status(chat_name: str):
+    """
+    Checks the status of a background task for a given chat.
+    Returns PID, whether it's still running, and the last few log lines.
+    """
+    lock = PIDLock(chat_name)
+    is_running = not lock.acquire()
+    if not is_running:
+        lock.release()
+
+    log_file = LOG_DIR / f"{chat_name}.log"
+    last_log = "Log file not found."
+    if log_file.exists():
+        with open(log_file, "r") as f:
+            lines = f.readlines()
+            last_log = "".join(lines[-10:]) if lines else "Log is empty."
+
+    return json.dumps({
+        "status": "running" if is_running else "not_running",
+        "chat_name": chat_name,
+        "last_log": last_log
+    })
 
 if __name__ == "__main__":
     mcp.run()

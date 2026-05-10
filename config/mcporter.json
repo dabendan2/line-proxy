@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "line_proxy": {
+      "command": "/home/ubuntu/line-proxy/venv/bin/python3",
+      "args": [
+        "/home/ubuntu/line-proxy/src/mcp_server.py"
+      ]
+    }
+  }
+}

@@ -1,10 +1,12 @@
 import asyncio
-from playwright.async_api import async_playwright
+from config import EXTENSION_ID, HERMES_PREFIX, MESSAGE_INPUT_SELECTOR, CHATROOM_HEADER_SELECTOR, \
+    CHATLIST_ITEM_TITLE_SELECTOR, CHATLIST_ITEM_SELECTOR, CHATROOM_CONTAINER_SELECTOR, \
+    MESSAGE_ITEM_SELECTOR, MESSAGE_CONTENT_SELECTOR, MESSAGE_TIME_SELECTOR
 
 async def get_line_page(context):
     """Finds the active LINE Extension page."""
     for page in context.pages:
-        if "ophjlpahpchlmihnnnihgmmeilfjmjjc" in page.url:
+        if EXTENSION_ID in page.url:
             return page
     return None
 
@@ -12,14 +14,14 @@ async def select_chat(page, chat_name):
     """Ensures the correct chat is selected in the UI using strict title matching."""
     try:
         # 1. Check current header first
-        header_locator = page.locator('[class*="chatroomHeader-module__name"]', has_text=chat_name).first
+        header_locator = page.locator(CHATROOM_HEADER_SELECTOR, has_text=chat_name).first
         if await header_locator.is_visible():
             text = await header_locator.inner_text()
             if text.strip() == chat_name:
                 return {"status": "success", "info": f"Chat '{chat_name}' is already selected."}
 
         # 2. Strict search in sidebar: title must match EXACTLY
-        title_locator = page.locator('[class*="chatlistItem-module__title"]', has_text=chat_name)
+        title_locator = page.locator(CHATLIST_ITEM_TITLE_SELECTOR, has_text=chat_name)
         count = await title_locator.count()
         
         target_item = None
@@ -28,14 +30,14 @@ async def select_chat(page, chat_name):
             text = await loc.inner_text()
             if text.strip() == chat_name:
                 # Found the exact title. Get the clickable parent container
-                target_item = loc.locator('xpath=ancestor::div[contains(@class, "chatlist_item")] | ancestor::button').first
+                target_item = loc.locator(CHATLIST_ITEM_SELECTOR).first
                 break
         
         if target_item:
             await target_item.click()
             await asyncio.sleep(2)
             # Verify header
-            header_text = await page.locator('[class*="chatroomHeader-module__name"]').first.inner_text()
+            header_text = await page.locator(CHATROOM_HEADER_SELECTOR).first.inner_text()
             if header_text.strip() == chat_name:
                 return {"status": "success"}
             return {"status": "failed", "error": f"Header verification failed. Expected '{chat_name}', got '{header_text}'"}
@@ -45,8 +47,6 @@ async def select_chat(page, chat_name):
     except Exception as e:
         return {"status": "error", "error": str(e)}
 
-HERMES_PREFIX = "[Hermes]"
-
 async def extract_messages(page):
     script = f"""
     () => {{
@@ -54,19 +54,19 @@ async def extract_messages(page):
         const prefix = "{HERMES_PREFIX}";
         
         // Find the ACTIVE chatroom container
-        const chatroom = document.querySelector('[class*="chatroom-module__chatroom"]') || document.querySelector('[class*="message_list"]');
+        const chatroom = document.querySelector('{CHATROOM_CONTAINER_SELECTOR}');
         if (!chatroom) return [];
 
-        const items = Array.from(chatroom.querySelectorAll('.message-module__message__7odk3, [class*="messageLayout-module__message"]'));
+        const items = Array.from(chatroom.querySelectorAll('{MESSAGE_ITEM_SELECTOR}'));
         items.forEach(msg => {{
             // Text extraction
-            const contentEl = msg.querySelector('[class*="content_inner"], [class*="textMessageContent-module__text"]');
+            const contentEl = msg.querySelector('{MESSAGE_CONTENT_SELECTOR}');
             if (!contentEl) return;
             
             let text = contentEl.innerText.trim();
             
             // Timestamp extraction
-            const timeEl = msg.querySelector('[class*="time"], [class*="metaInfo-module__time"]');
+            const timeEl = msg.querySelector('{MESSAGE_TIME_SELECTOR}');
             const timestamp = timeEl ? timeEl.innerText.trim() : "";
             
             const isSelfByPrefix = text.startsWith(prefix);
@@ -93,11 +93,11 @@ async def extract_messages(page):
         return []
 
 async def send_message(page, text):
-    message_area = page.locator('.message_input, [contenteditable="true"], textarea').first
+    message_area = page.locator(MESSAGE_INPUT_SELECTOR).first
     await message_area.click()
     
     # Append the visible prefix
-    prefixed_text = HERMES_PREFIX + " " + text
+    prefixed_text = f"{HERMES_PREFIX} {text}"
     
     await message_area.fill(prefixed_text)
     await page.keyboard.press("Enter")
