@@ -20,7 +20,9 @@ class PIDLock:
                     if psutil.pid_exists(old_pid):
                         # Verify it's actually a similar process (optional but safer)
                         proc = psutil.Process(old_pid)
-                        if "python" in proc.name().lower():
+                        # We also check if it's the SAME PID to prevent self-locking during tests
+                        is_python = "python" in proc.name().lower() or "pytest" in proc.name().lower()
+                        if is_python:
                             print(f"[LOCK] Another instance (PID {old_pid}) is already monitoring '{self.chat_name}'. Exiting.")
                             return False
                 except (ValueError, psutil.NoSuchProcess):

@@ -7,12 +7,12 @@ import line_utils
 from history_manager import HistoryManager
 
 class LineProxyEngine:
-    def __init__(self, page, chat_name, task, last_ignored_msg=None, last_ignored_time=None, model_name="gemini-3-flash-preview", api_key=None):
+    def __init__(self, page, chat_name, task, model_name="gemini-3-flash-preview", api_key=None):
         self.page = page
         self.target_chat = chat_name
         self.task_description = task
         self.model_name = model_name
-        self.history = HistoryManager(chat_name, last_ignored_msg, last_ignored_time)
+        self.history = HistoryManager(chat_name)
         self.client = genai.Client(api_key=api_key)
         
         etiquette_path = os.path.join(os.path.dirname(__file__), "etiquette.md")
@@ -95,8 +95,25 @@ class LineProxyEngine:
     async def run(self):
         self.history.write_log(f"Proxy Engine started for {self.target_chat} (using google.genai SDK)")
         await self.page.bring_to_front()
+        
+        # Ensure correct chat is selected
+        selection_result = await line_utils.select_chat(self.page, self.target_chat)
+        if selection_result["status"] != "success":
+            error_msg = selection_result.get("error", "Unknown selection error")
+            self.history.write_log(f"CRITICAL ERROR: {error_msg}")
+            
+            # If ambiguous, we MUST stop and not send anything
+            if selection_result["status"] == "ambiguous":
+                self.state["final_report"] = f"Ambiguity Error: {error_msg}"
+                return
+            
+            # For other non-not_found errors, we warn but try to continue
+            self.history.write_log(f"Warning: {error_msg}")
+            
         msgs = await line_utils.extract_messages(self.page)
-        if not msgs: return
+        if not msgs: 
+            self.history.write_log("No messages extracted. Exiting.")
+            return
 
         self.state.update(self.history.rebuild_state(msgs, self.task_description))
         if self.state.get("startup_action_needed"):
@@ -108,11 +125,16 @@ class LineProxyEngine:
             msgs = await line_utils.extract_messages(self.page)
             if not msgs:
                 await asyncio.sleep(5); continue
-            latest = msgs[0]
+            
+            # Since extract_messages now returns Oldest First, 
+            # the LATEST message is msgs[-1]
+            latest = msgs[-1]
             is_hermes = latest.get("has_hermes_prefix", False) or latest.get("is_self_dom", False)
             is_new = latest["text"].strip() != self.state.get("last_processed_msg", "").strip()
+            
             if not is_hermes and is_new:
                 if self.state.get("exit_at"): self.state["exit_at"] = None
                 await self.generate_and_send_reply(msgs)
+            
             await asyncio.sleep(5)
         self.history.write_log("Session concluded.")
