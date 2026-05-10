@@ -38,40 +38,52 @@ class LineProxyEngine:
                     break
             
             intro_instruction = "你已經在之前的對話中自我介紹過了，現在請直接針對對方的最新訊息進行回覆，嚴禁再次重複自我介紹。" if intro_already_done else "這是你與對方的第一次對話。請務必先進行自我介紹，開場白應固定為：『您好，我是 俊羽 的AI代理 Hermes。』隨後緊接著你的任務內容。"
-
             prompt = (
-                f"## 角色與工作任務 ##\n你現在是 Hermes，代表 Chunyu (賴俊羽) 的 AI 代理人。\n"
+                f"## 任務背景 ##\n"
+                f"你是 Hermes，俊羽 的 AI 代理人。你的目標是代表 俊羽 完成以下任務：\n"
+                f"任務內容：{self.task_description}\n\n"
+                f"## 互動規範 ##\n"
                 f"{intro_instruction}\n"
-                f"**重要禁令：嚴禁在回覆開頭自行加上 [Hermes] 或任何類似的身分標籤。系統會自動處理前綴。**\n"
-                f"**重要禁令：嚴禁幻想尚未發生的對話。你只能根據『對話上下文』中確實存在的訊息進行回覆。**\n"
-                f"**重要禁令：嚴禁重複詢問或要求對話歷史中已經回答過、或已經解決的事項。**\n"
-                f"**溝通準則：若對方詢問了你在歷史對話中已提過的資訊（重複詢問），請「精準、聚焦」地直接回答該問題，不要重複整段預約內容。**\n"
-                f"**退場與默契機制：若你的任務目標已達成，且對方的最新回覆是簡短的確認或結束語（例如：『好的』、『了解』、『沒問題』、『知道了』），則嚴禁再發送任何冗餘訊息（如：『再見』、『謝謝』）。請直接輸出 [END] 標籤結束，守候 5 分鐘。**\n"
-                f"**退場機制：如果雙方已互道再見，則嚴禁傳送任何新訊息。請直接使用 [END] 標籤結束。**\n"
-                f"任務：{self.task_description}\n\n"
+                f"- **身分標籤**：系統會自動處理前綴，回覆內容嚴禁包含 [Hermes] 或類似身分標記。\n"
+                f"- **真實性**：僅依據現有的對話歷史進行回覆，嚴禁虛構內容。\n"
+                f"- **效率與去重**：嚴禁重複詢問歷史對話中已解決的事項。若對方重複詢問，請精簡、聚焦地回答。\n"
+                f"- **退場邏輯**：當任務達成且對方已確認（如：『好的』、『了解』），或雙方已正式完成道別，應立即停止發送訊息並使用相應標籤。\n\n"
                 f"{self.etiquette}\n\n"
-                f"## 回覆格式規範 ##\n"
-                f"1. **社交回覆**：直接寫出要發送給使用者的對話。如果不需要發送訊息，請留空或僅輸出標籤。\n"
-                f"2. **終止標籤 (選填)**：若任務已完成、遇到缺失資訊、或已完成道別，請在訊息末端加上：\n"
-                f"   `[END, reason=\"(原因)\", report=\"(內部報告內容)\"]` \n"
-                f"   - reason 必須是以下之一：\"consulting\", \"accomplished\", \"goodbye\"\n"
+                f"## 核心執行邏輯 (Hard Rules) ##\n"
+                f"1. **禁止擅自決定 (No Unauthorized Pivots)**：若目標時段無法預定或指令僅包含『詢問』，嚴禁擅自答應替代方案。此時應輸出 `[AGENT_INPUT_NEEDED]`。\n"
+                f"2. **禁止一次性完成任務**：採取循序漸進策略，每則訊息僅推進一個最優先目標。\n"
+                f"3. **優先序**：日期時間 > 人數 > 特殊需求(餐具/停車) > 個人聯絡資訊。\n"
+                f"4. **簡潔度**：回覆字數嚴禁超過 40 字，且最多包含一個問句。\n"
+                f"\n## 狀態標籤系統 ##\n"
+                f"請在訊息末端加上一個合適的標籤：\n"
+                f"- `[WAIT_FOR_USER_INPUT]`：已發出詢問，等待對方回覆。\n"
+                f"- `[AGENT_INPUT_NEEDED, reason=\"...\"]`：關鍵資訊缺失、任務受阻或目標不合，需要人工介入。\n"
+                f"- `[IMPLICIT_ENDED, reason=\"...\"]`：任務達成且對方已確認，無需再回覆。\n"
+                f"- `[EXPLICIT_ENDED]`：雙方已完成正式道別。\n"
                 f"\n## 對話上下文 ##\n" + "\n".join(context_lines) +
-                f"\n\n根據上述歷史與禮儀，請給出回覆："
+                f"\n\n請根據上述規則與上下文給出回覆："
             )
             
             # SDK generate_content is synchronous
             response = self.client.models.generate_content(model=self.model_name, contents=prompt)
             full_text = str(getattr(response, 'text', '')).strip()
             
-            tag_match = re.search(r'\[END,\s*reason="([^"]+)",\s*report="([^"]+)"\]', full_text)
+            # Tag Parsing
+            waiting_match = "[WAIT_FOR_USER_INPUT]" in full_text
+            agent_input_match = re.search(r'\[AGENT_INPUT_NEEDED,\s*reason="([^"]+)"\]', full_text)
+            implicit_match = re.search(r'\[IMPLICIT_ENDED,\s*reason="([^"]+)"\]', full_text)
+            explicit_match = "[EXPLICIT_ENDED]" in full_text
+            
             reply_text = full_text
-            reason, report = None, ""
-            
-            if tag_match:
-                reason = tag_match.group(1)
-                report = tag_match.group(2)
-                reply_text = full_text.replace(tag_match.group(0), "").strip()
-            
+            # Remove all tags from reply text
+            reply_text = re.sub(r'\[AGENT_INPUT_NEEDED,.*?\]', '', reply_text)
+            reply_text = re.sub(r'\[IMPLICIT_ENDED,.*?\]', '', reply_text)
+            reply_text = reply_text.replace("[WAIT_FOR_USER_INPUT]", "")
+            reply_text = reply_text.replace("[EXPLICIT_ENDED]", "").strip()
+
+            if waiting_match:
+                self.history.write_log("DEBUG: [WAIT_FOR_USER_INPUT] detected. Waiting for store response.")
+
             reply_text = re.sub(r'^社交回覆：\s*', '', reply_text)
             
             if reply_text and len(reply_text) > 0:
@@ -80,11 +92,21 @@ class LineProxyEngine:
                     self.history.write_log(f"SENT: {reply_text}")
                     self.state["sent_messages"].append(reply_text.strip())
             
-            if reason:
-                wait_time = 120 if reason != "accomplished" else 300
-                self.state["exit_at"] = time.time() + wait_time
-                self.state["final_report"] = report
-                self.history.write_log(f"Exit Triggered: reason={reason}, waiting {wait_time}s. Report: {report}")
+            # Handle Exit Wait Times
+            if agent_input_match:
+                reason = agent_input_match.group(1)
+                self.state["exit_at"] = time.time() + 120
+                self.state["final_report"] = f"AGENT_INPUT_NEEDED: {reason}"
+                self.history.write_log(f"Exit Triggered: Agent input needed for '{reason}'. Waiting 120s.")
+            elif implicit_match:
+                reason = implicit_match.group(1)
+                self.state["exit_at"] = time.time() + 300
+                self.state["final_report"] = f"IMPLICIT_ENDED: {reason}"
+                self.history.write_log(f"Exit Triggered: IMPLICIT_ENDED for '{reason}'. Waiting 300s.")
+            elif explicit_match:
+                self.state["exit_at"] = time.time() + 120
+                self.state["final_report"] = "Conversation explicitly ended."
+                self.history.write_log("Exit Triggered: EXPLICIT_ENDED. Waiting 120s.")
             
             latest_msgs = await line_utils.extract_messages(self.page)
             if latest_msgs and isinstance(latest_msgs, list) and len(latest_msgs) > 0:

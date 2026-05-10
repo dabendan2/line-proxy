@@ -54,7 +54,7 @@ async def extract_messages(page):
         const prefix = "{HERMES_PREFIX}";
         
         // Find the ACTIVE chatroom container
-        const chatroom = document.querySelector('[class*="chatroom-module__chatroom"]');
+        const chatroom = document.querySelector('[class*="chatroom-module__chatroom"]') || document.querySelector('[class*="message_list"]');
         if (!chatroom) return [];
 
         const items = Array.from(chatroom.querySelectorAll('.message-module__message__7odk3, [class*="messageLayout-module__message"]'));
