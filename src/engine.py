@@ -47,6 +47,7 @@ class LineProxyEngine:
         prompt = prompt.replace("{{intro_instruction}}", intro_instruction)
         prompt = prompt.replace("{{HERMES_PREFIX}}", HERMES_PREFIX)
         prompt = prompt.replace("{{etiquette}}", self.etiquette)
+        prompt = prompt.replace("{{INTRO_PHRASE}}", INTRO_PHRASE)
         prompt = prompt.replace("{{context_lines}}", "\n".join(context_lines))
         
         return prompt
