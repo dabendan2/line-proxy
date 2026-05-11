@@ -7,7 +7,7 @@ To prevent bypassing quality gates (unit tests), the pre-commit hook is configur
 #!/usr/bin/env sh
 . "$(dirname -- "$0")/_/husky.sh"
 
-echo " [Husky] 執行預選檢查... ⚠️ 禁止使用 --no-verify 跳過測試 ⚠️"
+echo " [Husky] 執行預選檢查... ⚠️ 禁止使用 --no-verify 跳過測試。有錯誤務必修復或回報給使用者 ⚠️"
 npm test
 ```
 
