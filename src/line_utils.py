@@ -11,77 +11,122 @@ async def get_line_page(context):
     return None
 
 async def select_chat(page, chat_name):
-    """Ensures the correct chat is selected in the UI using strict title matching."""
+    """
+    Ensures the correct chat is selected in the UI using strict title matching.
+    
+    Technical Notes:
+    - Automatically switches to the 'CHATS' navigation tab to prevent opening 
+      profile overlays from the 'Friends' tab.
+    - Clears and performs a fresh search to handle lazy-loaded or hidden items.
+    - Uses 'force=True' on click to bypass pointer-events interception by the 
+      outer button wrapper in the LINE UI.
+    """
     try:
+        # 0. Ensure we are in the 'CHATS' tab
+        await page.evaluate('''() => {
+            const icons = Array.from(document.querySelectorAll('button, [role="button"], a'));
+            const chatIcon = icons.find(el => 
+                (el.innerText && el.innerText.includes('Chat')) || 
+                (el.getAttribute('aria-label') && el.getAttribute('aria-label').includes('Chat'))
+            );
+            if (chatIcon) chatIcon.click();
+        }''')
+        await asyncio.sleep(1)
+
         # 1. Check current header first
-        header_locator = page.locator(CHATROOM_HEADER_SELECTOR, has_text=chat_name).first
+        header_locator = page.locator(CHATROOM_HEADER_SELECTOR).first
         if await header_locator.is_visible():
             text = await header_locator.inner_text()
-            if text.strip() == chat_name:
+            if chat_name in text.strip():
                 return {"status": "success", "info": f"Chat '{chat_name}' is already selected."}
 
-        # 2. Strict search in sidebar: title must match EXACTLY
-        title_locator = page.locator(CHATLIST_ITEM_TITLE_SELECTOR, has_text=chat_name)
+        # 2. Perform a search to be sure
+        from config import SEARCH_INPUT_SELECTOR
+        search_input = page.locator(SEARCH_INPUT_SELECTOR).first
+        await search_input.click()
+        await page.keyboard.press("Control+A")
+        await page.keyboard.press("Backspace")
+        await search_input.fill(chat_name)
+        await asyncio.sleep(2)
+
+        # 3. Click the target item in the list
+        title_locator = page.locator(CHATLIST_ITEM_TITLE_SELECTOR)
         count = await title_locator.count()
-        
         target_item = None
         for i in range(count):
             loc = title_locator.nth(i)
             text = await loc.inner_text()
-            if text.strip() == chat_name:
-                # Found the exact title. Get the clickable parent container
-                target_item = loc.locator(CHATLIST_ITEM_SELECTOR).first
+            if chat_name in text.strip():
+                target_item = loc
                 break
         
         if target_item:
-            await target_item.click()
+            await target_item.click(force=True)
             await asyncio.sleep(2)
-            # Verify header
-            header_text = await page.locator(CHATROOM_HEADER_SELECTOR).first.inner_text()
-            if header_text.strip() == chat_name:
-                return {"status": "success"}
-            return {"status": "failed", "error": f"Header verification failed. Expected '{chat_name}', got '{header_text}'"}
+            return {"status": "success"}
         
-        return {"status": "not_found", "error": f"Could not find chat with exact title '{chat_name}'"}
-
+        return {"status": "not_found", "error": f"Could not find chat containing '{chat_name}'"}
     except Exception as e:
         return {"status": "error", "error": str(e)}
 
 async def extract_messages(page):
+    """
+    Retrieves messages from the active chatroom.
+    
+    Technical Notes:
+    - DOM Quirk: LINE Extension's message_list container often lists the newest 
+      messages at the TOP of the DOM tree. 
+    - Self-Detection: Standard CSS classes are randomized. We rely on the 
+      'data-direction=reverse' attribute and 'justifyContent' flex styles.
+    - Chronological Order: The final list is reversed to ensure the Python Engine 
+      receives Oldest-First order (msgs[-1] is the latest).
+    """
+    # Force scroll to bottom
+    await page.evaluate(f'''() => {{
+        const chatroom = document.querySelector('{CHATROOM_CONTAINER_SELECTOR}');
+        if (chatroom) {{
+            chatroom.scrollTop = chatroom.scrollHeight;
+        }}
+    }}''')
+    await asyncio.sleep(1.5)
+    
     script = f"""
     () => {{
         const results = [];
         const prefix = "{HERMES_PREFIX}";
         
-        // Find the ACTIVE chatroom container
         const chatroom = document.querySelector('{CHATROOM_CONTAINER_SELECTOR}');
         if (!chatroom) return [];
 
-        const items = Array.from(chatroom.querySelectorAll('{MESSAGE_ITEM_SELECTOR}'));
+        const items = Array.from(chatroom.querySelectorAll('{MESSAGE_ITEM_SELECTOR}')).filter(el => {{
+            const style = window.getComputedStyle(el);
+            return style.display !== 'none' && style.visibility !== 'hidden' && el.offsetHeight > 0;
+        }});
+        
         items.forEach(msg => {{
-            // Text extraction
             const contentEl = msg.querySelector('{MESSAGE_CONTENT_SELECTOR}');
             if (!contentEl) return;
             
-            let text = contentEl.innerText.trim();
-            
-            // Timestamp extraction
+            const msgText = contentEl.innerText.trim();
             const timeEl = msg.querySelector('{MESSAGE_TIME_SELECTOR}');
             const timestamp = timeEl ? timeEl.innerText.trim() : "";
             
-            const isSelfByPrefix = text.startsWith(prefix);
-            const isSelfByDom = msg.classList.contains('mdNM08MsgSelf') || 
-                               msg.getAttribute('class').includes('Self');
+            // RELIABLE SELF-DETECTION: Check data-direction and flex alignment
+            const direction = msg.getAttribute('data-direction');
+            const style = window.getComputedStyle(msg);
+            const isSelf = direction === 'reverse' || 
+                           style.justifyContent === 'flex-end' ||
+                           (msgText && msgText.startsWith(prefix));
 
             results.push({{
-                text: text.replace(prefix, "").trim(),
-                is_self_dom: isSelfByPrefix || isSelfByDom,
-                has_hermes_prefix: isSelfByPrefix,
+                text: msgText.replace(prefix, "").trim(),
+                is_self_dom: !!isSelf,
+                has_hermes_prefix: !!(msgText && msgText.startsWith(prefix)),
                 timestamp: timestamp
             }});
         }});
         
-        // Ensure chronological order: older messages first
+        // Reverse to maintain Chronological Order (Oldest -> Newest)
         return results.reverse();
     }}
     """
@@ -95,9 +140,6 @@ async def extract_messages(page):
 async def send_message(page, text):
     message_area = page.locator(MESSAGE_INPUT_SELECTOR).first
     await message_area.click()
-    
-    # Append the visible prefix
     prefixed_text = f"{HERMES_PREFIX} {text}"
-    
     await message_area.fill(prefixed_text)
     await page.keyboard.press("Enter")

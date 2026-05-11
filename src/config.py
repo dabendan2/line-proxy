@@ -38,9 +38,9 @@ CHATROOM_HEADER_SELECTOR = '[class*="chatroomHeader-module__name"]'
 CHATLIST_ITEM_TITLE_SELECTOR = '[class*="chatlistItem-module__title"]'
 CHATLIST_ITEM_SELECTOR = 'xpath=ancestor::div[contains(@class, "chatlist_item")] | ancestor::button'
 
-# Extraction Selectors
-CHATROOM_CONTAINER_SELECTOR = '[class*="chatroom-module__chatroom"], [class*="message_list"]'
-MESSAGE_ITEM_SELECTOR = '.message-module__message__7odk3, [class*="messageLayout-module__message"]'
+# Extraction Selectors - CRITICAL FIX BASED ON DOM SCAN
+CHATROOM_CONTAINER_SELECTOR = 'DIV.chatroom-module__chatroom__eVUaK, [class*="chatroomContent-module__content_area"]'
+MESSAGE_ITEM_SELECTOR = 'DIV.message-module__message__7odk3, [class*="messageLayout-module__message"]'
 MESSAGE_CONTENT_SELECTOR = '[class*="content_inner"], [class*="textMessageContent-module__text"]'
 MESSAGE_TIME_SELECTOR = '[class*="time"], [class*="metaInfo-module__time"]'
 
