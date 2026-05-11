@@ -1,16 +1,17 @@
 import asyncio
+from typing import List, Dict, Optional, Any
 from config import EXTENSION_ID, HERMES_PREFIX, MESSAGE_INPUT_SELECTOR, CHATROOM_HEADER_SELECTOR, \
     CHATLIST_ITEM_TITLE_SELECTOR, CHATLIST_ITEM_SELECTOR, CHATROOM_CONTAINER_SELECTOR, \
     MESSAGE_ITEM_SELECTOR, MESSAGE_CONTENT_SELECTOR, MESSAGE_TIME_SELECTOR
 
-async def get_line_page(context):
+async def get_line_page(context: Any) -> Any:
     """Finds the active LINE Extension page."""
     for page in context.pages:
         if EXTENSION_ID in page.url:
             return page
     return None
 
-async def select_chat(page, chat_name):
+async def select_chat(page: Any, chat_name: str) -> Dict[str, Any]:
     """
     Ensures the correct chat is selected in the UI using strict title matching.
     
@@ -36,8 +37,9 @@ async def select_chat(page, chat_name):
         # 1. Check current header first
         header_locator = page.locator(CHATROOM_HEADER_SELECTOR).first
         if await header_locator.is_visible():
-            text = await header_locator.inner_text()
-            if chat_name in text.strip():
+            text = (await header_locator.inner_text()).strip()
+            # Strict header check: must match name and NOT contain group count parenthesis
+            if text == chat_name or (chat_name in text and "(" not in text):
                 return {"status": "success", "info": f"Chat '{chat_name}' is already selected."}
 
         # 2. Perform a search to be sure
@@ -56,9 +58,18 @@ async def select_chat(page, chat_name):
         for i in range(count):
             loc = title_locator.nth(i)
             text = await loc.inner_text()
-            if chat_name in text.strip():
+            if text.strip() == chat_name:
                 target_item = loc
                 break
+        
+        # Fallback: if strict match fails, try partial but ensure no parenthesis (group indicator)
+        if not target_item:
+            for i in range(count):
+                loc = title_locator.nth(i)
+                text = await loc.inner_text()
+                if chat_name in text.strip() and "(" not in text:
+                    target_item = loc
+                    break
         
         if target_item:
             await target_item.click(force=True)
@@ -69,7 +80,7 @@ async def select_chat(page, chat_name):
     except Exception as e:
         return {"status": "error", "error": str(e)}
 
-async def extract_messages(page):
+async def extract_messages(page: Any) -> List[Dict[str, Any]]:
     """
     Retrieves messages from the active chatroom.
     
@@ -137,7 +148,7 @@ async def extract_messages(page):
         print(f"Extraction Error: {e}")
         return []
 
-async def send_message(page, text):
+async def send_message(page: Any, text: str) -> None:
     message_area = page.locator(MESSAGE_INPUT_SELECTOR).first
     await message_area.click()
     prefixed_text = f"{HERMES_PREFIX} {text}"

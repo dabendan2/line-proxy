@@ -3,9 +3,10 @@ import subprocess
 import time
 import psutil
 from pathlib import Path
+from typing import Optional, Dict, Any
 
 class BrowserManager:
-    def __init__(self, port=9222, profile_name="line_booking_session"):
+    def __init__(self, port: int = 9222, profile_name: str = "line_booking_session") -> None:
         self.port = port
         self.profile_name = profile_name
         self.user_data_dir = Path.home() / "snap/chromium/common" / profile_name
@@ -13,13 +14,13 @@ class BrowserManager:
         # Adjusted path to match May 2026 Snap configuration
         self.ext_path = Path.home() / "snap/chromium/common/chromium/Default/Extensions" / self.ext_id / "3.7.2_0"
 
-    def is_port_in_use(self):
+    def is_port_in_use(self) -> Optional[int]:
         for conn in psutil.net_connections():
             if conn.laddr.port == self.port and conn.status == 'LISTEN':
                 return conn.pid
         return None
 
-    def check_singleton_lock(self):
+    def check_singleton_lock(self) -> Optional[int]:
         lock_file = self.user_data_dir / "SingletonLock"
         if lock_file.is_symlink():
             lock_info = os.readlink(str(lock_file))
@@ -34,7 +35,7 @@ class BrowserManager:
             lock_file.unlink()
         return None
 
-    def prepare_instance(self):
+    def prepare_instance(self) -> Dict[str, Any]:
         # 1. Check if port is already providing a valid CDP endpoint
         try:
             import httpx

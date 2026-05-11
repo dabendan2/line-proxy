@@ -1,18 +1,19 @@
 import os
 import time
+from typing import List, Dict, Any
 from config import LOG_DIR
 
 class HistoryManager:
-    def __init__(self, chat_name):
+    def __init__(self, chat_name: str) -> None:
         self.log_path = LOG_DIR / f"{chat_name}.log"
 
-    def write_log(self, msg):
+    def write_log(self, text: str) -> None:
         t = time.strftime("%Y-%m-%d %H:%M:%S")
-        print(f"[{t}] {msg}", flush=True)
+        print(f"[{t}] {text}", flush=True)
         with open(self.log_path, "a", encoding="utf-8") as f:
-            f.write(f"[{t}] {msg}\n")
+            f.write(f"[{t}] {text}\n")
 
-    def rebuild_state(self, msgs, task_description):
+    def rebuild_state(self, msgs: List[Dict[str, Any]], task_description: str) -> Dict[str, Any]:
         sent_messages = []
         
         if self.log_path.exists():
@@ -49,7 +50,7 @@ class HistoryManager:
 
         return state
 
-    def get_full_context(self, msgs, sent_messages):
+    def get_full_context(self, msgs: List[Dict[str, Any]], sent_messages: List[str]) -> List[str]:
         # Merge DOM messages with internally tracked sent messages (which include tool outputs)
         # to ensure the AI knows what it has already done/discovered.
         context = []

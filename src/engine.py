@@ -1,4 +1,5 @@
 import asyncio
+from typing import List, Dict, Optional, Any
 import os
 import time
 import re
@@ -11,7 +12,7 @@ from config import DEFAULT_MODEL, OWNER_NAME, INTRO_PHRASE, HERMES_PREFIX, AGENT
     HERMES_API_URL
 
 class LineProxyEngine:
-    def __init__(self, page, chat_name, task, model_name=DEFAULT_MODEL, api_key=None):
+    def __init__(self, page: Any, chat_name: str, task: str, model_name: str = DEFAULT_MODEL, api_key: Optional[str] = None) -> None:
         self.page = page
         self.target_chat = chat_name
         self.task_description = task
@@ -34,7 +35,7 @@ class LineProxyEngine:
             "final_report": None
         }
 
-    def _build_prompt(self, context_lines):
+    def _build_prompt(self, context_lines: List[str]) -> str:
         intro_already_done = any("Hermes" in line and ("AI代理" in line or "AI 代理" in line or "AI Proxy" in line) 
                                  for line in context_lines)
         
@@ -53,7 +54,7 @@ class LineProxyEngine:
         
         return prompt
 
-    def _parse_response(self, full_text):
+    def _parse_response(self, full_text: str) -> Dict[str, Any]:
         waiting_match = "[WAIT_FOR_USER_INPUT]" in full_text
         agent_input_match = re.search(r'\[AGENT_INPUT_NEEDED,\s*reason="([^"]+)"(?:,\s*summary="([^"]+)")?\]', full_text)
         convo_ended_match = re.search(r'\[CONVERSATION_ENDED,\s*summary="([^"]+)"\]', full_text)
@@ -75,7 +76,7 @@ class LineProxyEngine:
             "tool_needed": {"tool": tool_match.group(1), "query": tool_match.group(2)} if tool_match else None
         }
 
-    async def execute_hermes_tool(self, tool_name, query):
+    async def execute_hermes_tool(self, tool_name: str, query: str) -> str:
         toolset_map = {
             "google_drive": "google-workspace",
             "drive": "google-workspace",
@@ -105,7 +106,7 @@ class LineProxyEngine:
             resp.raise_for_status()
             return resp.json()["choices"][0]["message"]["content"]
 
-    async def generate_and_send_reply(self, msgs):
+    async def generate_and_send_reply(self, msgs: List[Dict[str, Any]]) -> None:
         try:
             context_lines = self.history.get_full_context(msgs, self.state["sent_messages"])
             prompt = self._build_prompt(context_lines)
@@ -158,7 +159,7 @@ class LineProxyEngine:
         except Exception as e:
             self.history.write_log(f"Error in generate_and_send_reply: {e}")
 
-    async def run(self):
+    async def run(self) -> Optional[str]:
         start_time = time.time()
         self.history.write_log(f"Proxy Engine started for {self.target_chat}")
         await self.page.bring_to_front()

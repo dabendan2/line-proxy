@@ -1,5 +1,6 @@
 import asyncio
 import os
+from typing import List, Dict, Any, Optional
 import json
 import subprocess
 from pathlib import Path
@@ -32,7 +33,7 @@ async def get_page(port):
         return None, None, str(e)
 
 @mcp.tool()
-async def prepare_line_instance(port: int = CDP_PORT, profile_name: str = DEFAULT_PROFILE):
+async def prepare_line_instance(port: int = CDP_PORT, profile_name: str = DEFAULT_PROFILE) -> str:
     """
     Ensures a clean LINE Chromium instance is running on the specified port.
     Handles singleton locks and waits for readiness.
@@ -42,7 +43,7 @@ async def prepare_line_instance(port: int = CDP_PORT, profile_name: str = DEFAUL
     return json.dumps(result)
 
 @mcp.tool()
-async def find_chat(chat_name: str, port: int = CDP_PORT):
+async def find_chat(chat_name: str, port: int = CDP_PORT) -> str:
     """
     Finds and opens a specific chat window in the LINE extension.
     Shadow-DOM aware and handles profile overlay transitions.
@@ -87,7 +88,7 @@ async def find_chat(chat_name: str, port: int = CDP_PORT):
             return f"Error: {str(e)}"
 
 @mcp.tool()
-async def send_line_message(chat_name: str, text: str, port: int = CDP_PORT):
+async def send_line_message(chat_name: str, text: str, port: int = CDP_PORT) -> str:
     """
     Directly sends a message to the specified chat. 
     Assumes the chat is already selected or can be found.
@@ -121,7 +122,7 @@ async def send_line_message(chat_name: str, text: str, port: int = CDP_PORT):
             return f"Error: {str(e)}"
 
 @mcp.tool()
-async def get_line_messages(chat_name: str, limit: int = 10, port: int = CDP_PORT):
+async def get_line_messages(chat_name: str, limit: int = 10, port: int = CDP_PORT) -> str:
     """
     Retrieves the most recent N messages from the specified chat.
     Returns a list of objects with text, sender (is_self), and timestamp.
@@ -156,7 +157,7 @@ async def get_line_messages(chat_name: str, limit: int = 10, port: int = CDP_POR
             return f"Error: {str(e)}"
 
 @mcp.tool()
-async def run_task(chat_name: str, task: str, port: int = CDP_PORT, model: str = DEFAULT_MODEL):
+async def run_task(chat_name: str, task: str, port: int = CDP_PORT, model: str = DEFAULT_MODEL) -> str:
     """
     Runs an AI proxy task synchronously for a specific chat.
     This tool blocks until the task is completed or an error occurs.
