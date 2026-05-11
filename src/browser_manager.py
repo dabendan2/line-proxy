@@ -10,7 +10,7 @@ class BrowserManager:
         self.profile_name = profile_name
         self.user_data_dir = Path.home() / "snap/chromium/common" / profile_name
         self.ext_id = "ophjlpahpchlmihnnnihgmmeilfjmjjc"
-        # Adjusted path to match start_line_snap.sh pattern
+        # Adjusted path to match May 2026 Snap configuration
         self.ext_path = Path.home() / "snap/chromium/common/chromium/Default/Extensions" / self.ext_id / "3.7.2_0"
 
     def is_port_in_use(self):

@@ -6,7 +6,7 @@ import httpx
 from google import genai
 import line_utils
 from history_manager import HistoryManager
-from config import DEFAULT_MODEL, INTRO_PHRASE, HERMES_PREFIX, AGENT_INPUT_WAIT, \
+from config import DEFAULT_MODEL, OWNER_NAME, INTRO_PHRASE, HERMES_PREFIX, AGENT_INPUT_WAIT, \
     CONVERSATION_END_WAIT, POLL_INTERVAL, RUNTIME_TIMEOUT, TOOL_WAIT, \
     HERMES_API_URL
 
@@ -48,6 +48,7 @@ class LineProxyEngine:
         prompt = prompt.replace("{{HERMES_PREFIX}}", HERMES_PREFIX)
         prompt = prompt.replace("{{etiquette}}", self.etiquette)
         prompt = prompt.replace("{{INTRO_PHRASE}}", INTRO_PHRASE)
+        prompt = prompt.replace("{{OWNER_NAME}}", OWNER_NAME)
         prompt = prompt.replace("{{context_lines}}", "\n".join(context_lines))
         
         return prompt

@@ -17,8 +17,9 @@ VIEWPORT_HEIGHT = 1000
 
 # AI Configuration
 DEFAULT_MODEL = "gemini-3-flash-preview"
+OWNER_NAME = "俊羽"
 HERMES_PREFIX = "[Hermes]"
-INTRO_PHRASE = "您好，我是 俊羽 的AI代理 Hermes。"
+INTRO_PHRASE = f"您好，我是 {OWNER_NAME} 的AI代理 Hermes。"
 
 # Timing and Timeouts
 SEARCH_TIMEOUT = 10000
