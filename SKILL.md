@@ -66,9 +66,10 @@ The following skills are now integrated and should follow this central documenta
 - `line-automation`: General LINE strategies.
 - `line-extension-automation`: Technical CDP/Shadow-DOM details.
 
-## Maintenance & Logs
+### Maintenance & Logs
 - **Logs**: `~/.line-proxy/logs/{chat_name}.log` (contains detailed engine thought processes).
 - **Tests**: `/home/ubuntu/line-proxy/venv/bin/pytest /home/ubuntu/line-proxy/tests/`
+  - *Guidance*: Full test suite involves real AI integration tests. Use `timeout: 180` (3 minutes) when running `npm test` or all tests via Hermes terminal tool to avoid premature timeout.
 
 
 ## Technical References (Consolidated)

@@ -17,7 +17,9 @@ def check_api_key():
 async def run_ai_test(task, history):
     mock_page = MagicMock()
     mock_page.bring_to_front = AsyncMock()
-    with patch("line_utils.send_message", new_callable=AsyncMock) as mock_send,          patch("line_utils.select_chat", new_callable=AsyncMock, return_value={"status": "success"}):
+    with patch("line_utils.send_message", new_callable=AsyncMock) as mock_send, \
+         patch("line_utils.extract_messages", new_callable=AsyncMock, return_value=[]), \
+         patch("line_utils.select_chat", new_callable=AsyncMock, return_value={"status": "success"}):
         proxy = LineProxyEngine(page=mock_page, chat_name="test", task=task, api_key=api_key)
         captured_full_text = []
         original_parse = proxy._parse_response
@@ -30,24 +32,20 @@ async def run_ai_test(task, history):
 
 @pytest.mark.asyncio
 async def test_real_ai_trigger_wait_for_input():
-    # Scenario: Normal question should trigger wait
     out = await run_ai_test("詢問對方明天幾位", [{"text": "我想訂位", "is_self_dom": False}])
     assert "[WAIT_FOR_USER_INPUT]" in out
 
 @pytest.mark.asyncio
 async def test_real_ai_trigger_agent_input_needed():
-    # Scenario: Critical info missing from task itself
     out = await run_ai_test("幫我訂位", [{"text": "好的，哪一天？", "is_self_dom": False}])
     assert "[AGENT_INPUT_NEEDED" in out
 
 @pytest.mark.asyncio
 async def test_real_ai_trigger_implicit_ended():
-    # Scenario: User accepts and mission accomplished
     out = await run_ai_test("預訂5/12訂位", [{"text": "已經幫您訂好 5/12 的位置了", "is_self_dom": False}])
     assert "[IMPLICIT_ENDED" in out
 
 @pytest.mark.asyncio
 async def test_real_ai_trigger_explicit_ended():
-    # Scenario: Farewell
     out = await run_ai_test("完成訂位後道別", [{"text": "再見", "is_self_dom": False}])
     assert "[EXPLICIT_ENDED]" in out

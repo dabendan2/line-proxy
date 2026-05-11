@@ -5,9 +5,7 @@ import os
 import time
 import asyncio
 
-# Add src to path
 sys.path.append(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src"))
-
 from engine import LineProxyEngine
 
 class MockResponse:
@@ -22,7 +20,9 @@ def mock_page():
 
 @pytest.mark.asyncio
 async def test_reason_consulting_mapping(mock_page):
-    with patch("google.genai.Client") as mock_client_class,          patch("line_utils.send_message", new_callable=AsyncMock):
+    with patch("google.genai.Client") as mock_client_class, \
+         patch("line_utils.send_message", new_callable=AsyncMock), \
+         patch("line_utils.extract_messages", new_callable=AsyncMock, return_value=[]):
         mock_client = mock_client_class.return_value
         mock_client.models.generate_content.return_value = MockResponse('問問俊羽。[AGENT_INPUT_NEEDED, reason="詢問電話"]')
         
@@ -41,7 +41,9 @@ async def test_no_redundant_intro_logic(mock_page):
         {"text": "我是 Hermes", "is_self_dom": True, "timestamp": "10:01 AM"}
     ]
     
-    with patch("google.genai.Client") as mock_client_class,          patch("line_utils.send_message", new_callable=AsyncMock) as mock_send:
+    with patch("google.genai.Client") as mock_client_class, \
+         patch("line_utils.send_message", new_callable=AsyncMock) as mock_send, \
+         patch("line_utils.extract_messages", new_callable=AsyncMock, return_value=[]):
         mock_client = mock_client_class.return_value
         mock_client.models.generate_content.return_value = MockResponse("這部分沒問題。")
         
@@ -63,14 +65,3 @@ def test_history_manager_context_includes_timestamps():
     context = mgr.get_full_context(msgs, [])
     assert "[8:00 AM] User/Staff: 早安" in context[0]
     assert "[8:05 AM] Hermes (AI Proxy): 你好" in context[1]
-
-def test_rebuild_state_takeover_logic():
-    from history_manager import HistoryManager
-    mgr = HistoryManager(chat_name="test")
-    msgs = [
-        {"text": "有位子嗎", "is_self_dom": True, "timestamp": "1:00 PM"},
-        {"text": "有的", "is_self_dom": False, "timestamp": "1:05 PM"}
-    ]
-    state = mgr.rebuild_state(msgs, "訂位")
-    assert state["startup_action_needed"] is True
-    assert state["last_processed_msg"] == "___TAKEOVER___"

@@ -2,11 +2,13 @@ import asyncio
 import os
 import time
 import re
+import httpx
 from google import genai
 import line_utils
 from history_manager import HistoryManager
 from config import DEFAULT_MODEL, INTRO_PHRASE, HERMES_PREFIX, AGENT_INPUT_WAIT, \
-    IMPLICIT_END_WAIT, EXPLICIT_END_WAIT, POLL_INTERVAL, RUNTIME_TIMEOUT
+    IMPLICIT_END_WAIT, EXPLICIT_END_WAIT, POLL_INTERVAL, RUNTIME_TIMEOUT, TOOL_WAIT, \
+    HERMES_API_URL
 
 class LineProxyEngine:
     def __init__(self, page, chat_name, task, model_name=DEFAULT_MODEL, api_key=None):
@@ -60,6 +62,9 @@ class LineProxyEngine:
             f"- `[AGENT_INPUT_NEEDED, reason=\"...\"]`：關鍵資訊缺失、任務受阻或目標不合，需要人工介入。\n"
             f"- `[IMPLICIT_ENDED, reason=\"...\"]`：任務達成且對方已確認，無需再回覆。\n"
             f"- `[EXPLICIT_ENDED]`：雙方已完成正式道別。\n"
+            f"- `[TOOL_ACCESS_NEEDED, tool=\"...\", query=\"...\"]`：為了完成**主任務**，需要存取外部工具（如 `web_search`, `google_drive`）。\n"
+            f"    - **限制**：僅在工具為完成「任務內容」所必須，且對話中提及時使用。\n"
+            f"    - **嚴禁**：嚴禁為了解決使用者提出的「與主任務無關」的要求（如：玩遊戲時詢問天氣）而使用此標籤。對於無關要求，請禮貌地拒絕或導回主任務。\n"
             f"\n## 對話上下文 ##\n" + "\n".join(context_lines) +
             f"\n\n請根據上述規則與上下文給出回覆："
         )
@@ -69,10 +74,12 @@ class LineProxyEngine:
         agent_input_match = re.search(r'\[AGENT_INPUT_NEEDED,\s*reason="([^"]+)"\]', full_text)
         implicit_match = re.search(r'\[IMPLICIT_ENDED,\s*reason="([^"]+)"\]', full_text)
         explicit_match = "[EXPLICIT_ENDED]" in full_text
+        tool_match = re.search(r'\[TOOL_ACCESS_NEEDED,\s*tool="([^"]+)",\s*query="([^"]+)"\]', full_text)
         
         reply_text = full_text
         reply_text = re.sub(r'\[AGENT_INPUT_NEEDED,.*?\]', '', reply_text)
         reply_text = re.sub(r'\[IMPLICIT_ENDED,.*?\]', '', reply_text)
+        reply_text = re.sub(r'\[TOOL_ACCESS_NEEDED,.*?\]', '', reply_text)
         reply_text = reply_text.replace("[WAIT_FOR_USER_INPUT]", "")
         reply_text = reply_text.replace("[EXPLICIT_ENDED]", "").strip()
         reply_text = re.sub(r'^社交回覆：\s*', '', reply_text)
@@ -82,8 +89,23 @@ class LineProxyEngine:
             "is_waiting": waiting_match,
             "agent_input_needed": agent_input_match.group(1) if agent_input_match else None,
             "implicit_ended": implicit_match.group(1) if implicit_match else None,
-            "explicit_ended": explicit_match
+            "explicit_ended": explicit_match,
+            "tool_needed": {"tool": tool_match.group(1), "query": tool_match.group(2)} if tool_match else None
         }
+
+    async def execute_hermes_tool(self, tool_name, query):
+        url = f"{HERMES_API_URL}/v1/chat/completions"
+        payload = {
+            "model": "hermes-agent",
+            "messages": [
+                {"role": "user", "content": f"Please execute the tool '{tool_name}' for this query: '{query}'. Return only the result."}
+            ],
+            "stream": False
+        }
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            resp = await client.post(url, json=payload)
+            resp.raise_for_status()
+            return resp.json()["choices"][0]["message"]["content"]
 
     async def generate_and_send_reply(self, msgs):
         try:
@@ -101,25 +123,39 @@ class LineProxyEngine:
                 self.history.write_log(f"SENT: {result['text']}")
                 self.state["sent_messages"].append(result["text"].strip())
             
-            # Update state for exit
             if result["agent_input_needed"]:
                 self.state.update({
                     "exit_at": time.time() + AGENT_INPUT_WAIT,
                     "final_report": f"AGENT_INPUT_NEEDED: {result['agent_input_needed']}"
                 })
-                self.history.write_log(f"Exit Triggered: Agent input needed for '{result['agent_input_needed']}'. Waiting {AGENT_INPUT_WAIT}s.")
+                self.history.write_log(f"Exit Triggered: AGENT_INPUT_NEEDED for '{result['agent_input_needed']}'.")
             elif result["implicit_ended"]:
                 self.state.update({
                     "exit_at": time.time() + IMPLICIT_END_WAIT,
                     "final_report": f"IMPLICIT_ENDED: {result['implicit_ended']}"
                 })
-                self.history.write_log(f"Exit Triggered: IMPLICIT_ENDED for '{result['implicit_ended']}'. Waiting {IMPLICIT_END_WAIT}s.")
+                self.history.write_log(f"Exit Triggered: IMPLICIT_ENDED for '{result['implicit_ended']}'.")
             elif result["explicit_ended"]:
                 self.state.update({
                     "exit_at": time.time() + EXPLICIT_END_WAIT,
                     "final_report": "Conversation explicitly ended."
                 })
-                self.history.write_log(f"Exit Triggered: EXPLICIT_ENDED. Waiting {EXPLICIT_END_WAIT}s.")
+                self.history.write_log("Exit Triggered: EXPLICIT_ENDED.")
+            elif result["tool_needed"]:
+                await line_utils.send_message(self.page, f"[系統] 正在執行工具: {result['tool_needed']['tool']}...")
+                try:
+                    tool_output = await self.execute_hermes_tool(result['tool_needed']['tool'], result['tool_needed']['query'])
+                    self.state["sent_messages"].append(f"[系統通知] 工具執行成功。結果為: {tool_output}")
+                    latest = await line_utils.extract_messages(self.page)
+                    await self.generate_and_send_reply(latest)
+                except Exception as e:
+                    error_report = f"[系統錯誤] 工具 {result['tool_needed']['tool']} 執行失敗: {str(e)}"
+                    await line_utils.send_message(self.page, error_report)
+                
+                self.state.update({
+                    "exit_at": time.time() + TOOL_WAIT,
+                    "final_report": f"TOOL_ACCESS_NEEDED: {result['tool_needed']['tool']}"
+                })
             
             latest_msgs = await line_utils.extract_messages(self.page)
             if latest_msgs:
@@ -132,29 +168,17 @@ class LineProxyEngine:
         start_time = time.time()
         self.history.write_log(f"Proxy Engine started for {self.target_chat}")
         await self.page.bring_to_front()
+        await line_utils.select_chat(self.page, self.target_chat)
         
-        selection_result = await line_utils.select_chat(self.page, self.target_chat)
-        if selection_result["status"] != "success":
-            error_msg = selection_result.get("error", "Unknown selection error")
-            self.history.write_log(f"CRITICAL ERROR: {error_msg}")
-            if selection_result["status"] == "ambiguous":
-                self.state["final_report"] = f"Ambiguity Error: {error_msg}"
-                return
-            self.history.write_log(f"Warning: {error_msg}")
-            
         msgs = await line_utils.extract_messages(self.page)
-        if not msgs: 
-            self.history.write_log("No messages extracted. Exiting.")
-            return
+        if not msgs: return
 
         self.state.update(self.history.rebuild_state(msgs, self.task_description))
         await self.generate_and_send_reply(msgs)
 
         while True:
             if time.time() - start_time > RUNTIME_TIMEOUT:
-                timeout_msg = f"[RESTART_REQUIRED] Engine reached {RUNTIME_TIMEOUT}s limit. Please restart task with 1 hour timeout."
-                self.history.write_log(timeout_msg)
-                print(timeout_msg)
+                timeout_msg = "[RESTART_REQUIRED] Runtime limit reached."
                 self.state["final_report"] = timeout_msg
                 break
             if self.state.get("exit_at") and time.time() >= self.state["exit_at"]:
@@ -164,10 +188,7 @@ class LineProxyEngine:
                 latest = msgs[-1]
                 is_hermes = latest.get("has_hermes_prefix", False) or latest.get("is_self_dom", False)
                 is_new = latest["text"].strip() != self.state.get("last_processed_msg", "").strip()
-                
                 if not is_hermes and is_new:
                     if self.state.get("exit_at"): self.state["exit_at"] = None
                     await self.generate_and_send_reply(msgs)
-            
             await asyncio.sleep(POLL_INTERVAL)
-        self.history.write_log("Session concluded.")

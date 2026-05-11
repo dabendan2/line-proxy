@@ -62,7 +62,8 @@ async def test_js_order_logic():
     to ensure chronological order (Oldest First) for the Python engine.
     """
     # Read the JS string from line_utils.py
-    with open("src/line_utils.py", "r") as f:
+    src_path = os.path.join(os.path.dirname(__file__), "..", "src", "line_utils.py")
+    with open(src_path, "r") as f:
         content = f.read()
     
     # We REQUIRE .reverse() because the LINE Extension DOM 
