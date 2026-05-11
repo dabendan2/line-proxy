@@ -14,19 +14,20 @@ This server provides direct tools to interact with the LINE Chrome Extension via
 The LINE Proxy has been refactored to use a **Blocking Tool Pattern**. This allows the Hermes Agent system to natively handle backgrounding and auto-notifications.
 
 ### Standard Calling Convention
-Always use the `terminal` tool with `background=true` and `notify_on_complete=true` to start long-running tasks:
+Always use the `terminal` tool with `background=true` and `notify_on_complete=true` to start long-running tasks. For interactive tasks like `run_task`, **always set a generous timeout (e.g., 1 hour / 3600s)** via mcporter's `--timeout` flag to prevent premature disconnection during human-in-the-loop interactions:
 
 ```python
 terminal(
-    command="npx mcporter call line_proxy.run_task chat_name:\"NAME\" task:\"DESCRIPTION\"",
+    command="mcporter call line_proxy.run_task chat_name:\"NAME\" task:\"DESCRIPTION\" --timeout 3600000",
     background=true,
     notify_on_complete=true
 )
 ```
 
 **Why?**
+- **Human Delay**: LINE users often take minutes or hours to respond. A 60s default timeout will cause Hermes to lose track of the process.
 - **Proactive Feedback**: Hermes will automatically alert you via Telegram/Messaging when the task finishes.
-- **Log Capture**: The task's output (including final board states or booking confirmations) is captured natively.
+- **Log Capture**: The task's output is captured natively.
 - **Simplified Lifecycle**: No need to manually poll PIDs or logs.
 
 ## Tool Reference (MCP)

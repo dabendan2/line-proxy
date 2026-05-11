@@ -27,6 +27,9 @@ AGENT_INPUT_WAIT = 120
 IMPLICIT_END_WAIT = 300
 EXPLICIT_END_WAIT = 120
 
+# Runtime Timeout: 50 minutes (3000 seconds)
+RUNTIME_TIMEOUT = int(os.environ.get("LINE_ENGINE_RUNTIME_TIMEOUT", 3000))
+
 # DOM Selectors
 SEARCH_INPUT_SELECTOR = "input[placeholder*='Search'], input[placeholder*='搜尋'], .search_input, input[type='text']"
 MESSAGE_INPUT_SELECTOR = '.message_input, [contenteditable="true"], textarea'

@@ -6,7 +6,7 @@ from google import genai
 import line_utils
 from history_manager import HistoryManager
 from config import DEFAULT_MODEL, INTRO_PHRASE, HERMES_PREFIX, AGENT_INPUT_WAIT, \
-    IMPLICIT_END_WAIT, EXPLICIT_END_WAIT, POLL_INTERVAL
+    IMPLICIT_END_WAIT, EXPLICIT_END_WAIT, POLL_INTERVAL, RUNTIME_TIMEOUT
 
 class LineProxyEngine:
     def __init__(self, page, chat_name, task, model_name=DEFAULT_MODEL, api_key=None):
@@ -127,6 +127,7 @@ class LineProxyEngine:
             self.history.write_log(f"Error in generate_and_send_reply: {e}")
 
     async def run(self):
+        start_time = time.time()
         self.history.write_log(f"Proxy Engine started for {self.target_chat}")
         await self.page.bring_to_front()
         
@@ -148,6 +149,12 @@ class LineProxyEngine:
         await self.generate_and_send_reply(msgs)
 
         while True:
+            if time.time() - start_time > RUNTIME_TIMEOUT:
+                timeout_msg = f"[RESTART_REQUIRED] Engine reached {RUNTIME_TIMEOUT}s limit. Please restart task with 1 hour timeout."
+                self.history.write_log(timeout_msg)
+                print(timeout_msg)
+                self.state["final_report"] = timeout_msg
+                break
             if self.state.get("exit_at") and time.time() >= self.state["exit_at"]:
                 break
             msgs = await line_utils.extract_messages(self.page)
