@@ -22,6 +22,10 @@ class LineProxyEngine:
         etiquette_path = os.path.join(os.path.dirname(__file__), "etiquette.md")
         with open(etiquette_path, "r", encoding="utf-8") as f:
             self.etiquette = f.read()
+
+        prompt_path = os.path.join(os.path.dirname(__file__), "engine_prompt.md")
+        with open(prompt_path, "r", encoding="utf-8") as f:
+            self.system_prompt_template = f.read()
             
         self.state = {
             "sent_messages": [], 
@@ -36,33 +40,16 @@ class LineProxyEngine:
         
         intro_instruction = ("你已經在之前的對話中自我介紹過了，現在請直接針對對方的最新訊息進行回覆，嚴禁再次重複自我介紹。" 
                              if intro_already_done else 
-                             f"這是你與對方的第一次對話。請務必先進行自我介紹，開場白應固定為：『{INTRO_PHRASE}』隨後緊接著你的任務內容。")
+                             f"這是你與對方的第一次對話。請務必先進行自我介紹，開場白應固定為：『{INTRO_PHRASE}』。")
         
-        return (
-            f"## 任務背景 ##\n"
-            f"你是 Hermes，俊羽 的 AI 代理人。你的目標是代表 俊羽 完成以下任務：\n"
-            f"任務內容：{self.task_description}\n\n"
-            f"## 互動規範 ##\n"
-            f"{intro_instruction}\n"
-            f"- **身分標籤**：系統會自動處理前綴，回覆內容嚴禁包含 {HERMES_PREFIX} 或類似身分標記。\n"
-            f"- **真實性**：僅依據現有的對話歷史進行回覆，嚴禁虛構內容。\n"
-            f"- **精確提問**：在向對方發問或確認時，必須在句子中嵌入關鍵的約束條件（如具體時間、數量、位置或特定需求內容）。嚴禁發出語意模糊的問句。\n"
-            f"- **退場與彙整邏輯**：當任務達成、失敗或需人工介入時，必須使用標籤退場，並在標籤內附帶 `summary` 屬性，將目前收集到的所有事實彙整為結構化結案報告。內容需包含：最終狀態、關鍵資訊摘要（如時間/金額/設施回覆）、待辦事項。\n"
-            f"    - *範例 (成功)*：對方說『訂好了』 -> 回覆『謝謝！』並輸出 `[CONVERSATION_ENDED, summary=\"1.狀態：成功 2.摘要：5/12 13:00、無停車位、堅果自挑\"]`。\n"
-            f"    - *範例 (介入)*：目標時段滿了 -> 回覆『我需確認。』並輸出 `[AGENT_INPUT_NEEDED, reason=\"滿位\", summary=\"1.狀態：需介入 2.摘要：目標時段已滿，待確認備選方案\"]`。\n\n"
-            f"{self.etiquette}\n\n"
-            f"## 核心執行邏輯 (Hard Rules) ##\n"
-            f"1. **禁止擅自決定 (No Unauthorized Pivots)**：若目標時段無法預定，務必使用 `[AGENT_INPUT_NEEDED]`。\n"
-            f"2. **簡潔度**：回覆字數嚴禁超過 50 字。\n" 
-            f"\n## 狀態標籤系統 ##\n"
-            f"請在訊息末端加上一個合適的標籤：\n"
-            f"- `[WAIT_FOR_USER_INPUT]`\n"
-            f"- `[AGENT_INPUT_NEEDED, reason=\"...\", summary=\"...\"]`\n"
-            f"- `[CONVERSATION_ENDED, summary=\"...\"]`\n"
-            f"- `[TOOL_ACCESS_NEEDED, tool=\"...\", query=\"...\"]`\n"
-            f"\n## 對話上下文 ##\n" + "\n".join(context_lines) +
-            f"\n\n請根據上述規則與上下文給出回覆："
-        )
+        prompt = self.system_prompt_template
+        prompt = prompt.replace("{{task_description}}", self.task_description)
+        prompt = prompt.replace("{{intro_instruction}}", intro_instruction)
+        prompt = prompt.replace("{{HERMES_PREFIX}}", HERMES_PREFIX)
+        prompt = prompt.replace("{{etiquette}}", self.etiquette)
+        prompt = prompt.replace("{{context_lines}}", "\n".join(context_lines))
+        
+        return prompt
 
     def _parse_response(self, full_text):
         waiting_match = "[WAIT_FOR_USER_INPUT]" in full_text

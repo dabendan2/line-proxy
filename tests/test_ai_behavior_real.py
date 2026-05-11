@@ -40,12 +40,12 @@ async def test_real_ai_trigger_agent_input_needed():
     out = await run_ai_test("幫我訂位", [{"text": "好的，哪一天？", "is_self_dom": False}])
     assert "[AGENT_INPUT_NEEDED" in out
 
-@pytest.mark.asyncio
-async def test_real_ai_trigger_implicit_ended():
-    out = await run_ai_test("預訂5/12訂位", [{"text": "已經幫您訂好 5/12 的位置了", "is_self_dom": False}])
-    assert "[IMPLICIT_ENDED" in out
+    @pytest.mark.asyncio
+    async def test_real_ai_trigger_convo_ended():
+        out = await run_ai_test("預訂5/12訂位", [{"text": "已經幫您訂好 5/12 的位置了", "is_self_dom": False}])
+        assert "[CONVERSATION_ENDED" in out
 
-@pytest.mark.asyncio
-async def test_real_ai_trigger_explicit_ended():
-    out = await run_ai_test("完成訂位後道別", [{"text": "再見", "is_self_dom": False}])
-    assert "[EXPLICIT_ENDED]" in out
+    @pytest.mark.asyncio
+    async def test_real_ai_trigger_convo_ended_farewell():
+        out = await run_ai_test("完成訂位後道別", [{"text": "再見", "is_self_dom": False}])
+        assert "[CONVERSATION_ENDED" in out

@@ -26,6 +26,12 @@ async def main():
         print("Error: GEMINI_API_KEY not found in environment.")
         sys.exit(1)
 
+    # Refactor task using Stepped Communication logic
+    from task_refactorer import TaskRefactorer
+    refactorer = TaskRefactorer(api_key=api_key, model_name=args.model)
+    refactored_task = refactorer.refactor(args.task)
+    print(f"DEBUG: Refactored Task:\n{refactored_task}")
+
     lock = PIDLock(args.chat_name)
     if not lock.acquire():
         print(f"Error: Chat '{args.chat_name}' is already being managed.")
@@ -45,7 +51,7 @@ async def main():
             engine = LineProxyEngine(
                 page=page,
                 chat_name=args.chat_name,
-                task=args.task,
+                task=refactored_task,
                 model_name=args.model,
                 api_key=api_key
             )

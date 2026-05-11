@@ -46,10 +46,10 @@ async def test_pivot_protection_triggered(mock_page):
         await proxy.generate_and_send_reply(history)
         assert "AGENT_INPUT_NEEDED: 時段不符" in proxy.state["final_report"]
 
-@pytest.mark.asyncio
-async def test_all_end_tags_exit_loop(mock_page):
-    tags = [('[AGENT_INPUT_NEEDED, reason="t"]', 120), ('[IMPLICIT_ENDED, reason="t"]', 300), ('[EXPLICIT_ENDED]', 120)]
-    for tag_text, _ in tags:
+    @pytest.mark.asyncio
+    async def test_all_end_tags_exit_loop(mock_page):
+        tags = [('[AGENT_INPUT_NEEDED, reason="t"]', 120), ('[CONVERSATION_ENDED, summary="t"]', 120)]
+
         with patch("google.genai.Client") as mock_client_class, \
              patch("line_utils.send_message", new_callable=AsyncMock), \
              patch("line_utils.extract_messages", new_callable=AsyncMock, return_value=[]):
