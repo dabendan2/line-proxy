@@ -50,11 +50,24 @@ class HistoryManager:
         return state
 
     def get_full_context(self, msgs, sent_messages):
-        dom_history = []
+        # Merge DOM messages with internally tracked sent messages (which include tool outputs)
+        # to ensure the AI knows what it has already done/discovered.
+        context = []
+        
+        # 1. Start with DOM history
         for m in msgs:
             text = m["text"].strip()
             timestamp = m.get("timestamp", "Unknown Time")
             is_hermes = m.get("is_self_dom", False)
             sender = "Hermes (AI Proxy)" if is_hermes else "User/Staff"
-            dom_history.append(f"[{timestamp}] {sender}: {text}")
-        return dom_history
+            context.append(f"[{timestamp}] {sender}: {text}")
+            
+        # 2. Append internally tracked but NOT-YET-SENT status updates (like Tool Results)
+        # These are in sent_messages but might not be in the DOM yet or at all.
+        for internal_msg in sent_messages:
+            if "[系統通知] 工具執行成功" in internal_msg or "[系統通知] 工具執行結果" in internal_msg:
+                # Check if this specific result is already reflected in the context
+                if internal_msg not in "\n".join(context):
+                    context.append(f"[Internal Log] {internal_msg}")
+                    
+        return context

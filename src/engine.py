@@ -7,7 +7,7 @@ from google import genai
 import line_utils
 from history_manager import HistoryManager
 from config import DEFAULT_MODEL, INTRO_PHRASE, HERMES_PREFIX, AGENT_INPUT_WAIT, \
-    IMPLICIT_END_WAIT, EXPLICIT_END_WAIT, POLL_INTERVAL, RUNTIME_TIMEOUT, TOOL_WAIT, \
+    CONVERSATION_END_WAIT, POLL_INTERVAL, RUNTIME_TIMEOUT, TOOL_WAIT, \
     HERMES_API_URL
 
 class LineProxyEngine:
@@ -46,63 +46,72 @@ class LineProxyEngine:
             f"{intro_instruction}\n"
             f"- **身分標籤**：系統會自動處理前綴，回覆內容嚴禁包含 {HERMES_PREFIX} 或類似身分標記。\n"
             f"- **真實性**：僅依據現有的對話歷史進行回覆，嚴禁虛構內容。\n"
-            f"- **效率與去重**：嚴禁重複詢問歷史對話中已解決的事項。若對方重複詢問，請精簡、聚焦地回答。\n"
-            f"- **退場邏輯**：當任務達成且對方已確認（如：『好的』、『了解』、『沒問題』、『確認了』），或雙方已正式完成道別，應先禮貌地回應（如：『謝謝您』、『辛苦了』），隨後停止發送訊息並使用相應標籤。如果對方的回覆已經包含了你任務所要求的確認，嚴禁再次詢問。\n"
-            f"    - *範例*：對方說『訂好了』 -> 回覆『謝謝您的協助！』並輸出 `[IMPLICIT_ENDED, reason=\"對方已確認完成\"]`。\n"
-            f"    - *範例*：對方說『再見』 -> 回覆『好的，再見！』並輸出 `[EXPLICIT_ENDED]`。\n\n"
+            f"- **精確提問**：在向對方發問或確認時，必須在句子中嵌入關鍵的約束條件（如具體時間、數量、位置或特定需求內容）。嚴禁發出語意模糊的問句。\n"
+            f"- **退場與彙整邏輯**：當任務達成、失敗或需人工介入時，必須使用標籤退場，並在標籤內附帶 `summary` 屬性，將目前收集到的所有事實彙整為結構化結案報告。內容需包含：最終狀態、關鍵資訊摘要（如時間/金額/設施回覆）、待辦事項。\n"
+            f"    - *範例 (成功)*：對方說『訂好了』 -> 回覆『謝謝！』並輸出 `[CONVERSATION_ENDED, summary=\"1.狀態：成功 2.摘要：5/12 13:00、無停車位、堅果自挑\"]`。\n"
+            f"    - *範例 (介入)*：目標時段滿了 -> 回覆『我需確認。』並輸出 `[AGENT_INPUT_NEEDED, reason=\"滿位\", summary=\"1.狀態：需介入 2.摘要：目標時段已滿，待確認備選方案\"]`。\n\n"
             f"{self.etiquette}\n\n"
             f"## 核心執行邏輯 (Hard Rules) ##\n"
-            f"1. **禁止擅自決定 (No Unauthorized Pivots)**：若目標時段無法預定或指令僅包含『詢問』，嚴禁擅自答應替代方案。此時應輸出 `[AGENT_INPUT_NEEDED]`。\n"
-            f"2. **禁止一次性完成任務**：採取循序漸進策略，每則訊息僅推進一個最優先目標。\n"
-            f"3. **優先序**：日期時間 > 人數 > 特殊需求(餐具/停車) > 個人聯絡資訊。\n"
-            f"4. **簡潔度**：回覆字數嚴禁超過 40 字，且最多包含一個問句。\n"
+            f"1. **禁止擅自決定 (No Unauthorized Pivots)**：若目標時段無法預定，務必使用 `[AGENT_INPUT_NEEDED]`。\n"
+            f"2. **簡潔度**：回覆字數嚴禁超過 50 字。\n" 
             f"\n## 狀態標籤系統 ##\n"
             f"請在訊息末端加上一個合適的標籤：\n"
-            f"- `[WAIT_FOR_USER_INPUT]`：已發出詢問，等待對方回覆。\n"
-            f"- `[AGENT_INPUT_NEEDED, reason=\"...\"]`：關鍵資訊缺失、任務受阻或目標不合，需要人工介入。\n"
-            f"- `[IMPLICIT_ENDED, reason=\"...\"]`：任務達成且對方已確認，無需再回覆。\n"
-            f"- `[EXPLICIT_ENDED]`：雙方已完成正式道別。\n"
-            f"- `[TOOL_ACCESS_NEEDED, tool=\"...\", query=\"...\"]`：為了完成**主任務**，需要存取外部工具（如 `web_search`, `google_drive`）。\n"
-            f"    - **限制**：僅在工具為完成「任務內容」所必須，且對話中提及時使用。\n"
-            f"    - **嚴禁**：嚴禁為了解決使用者提出的「與主任務無關」的要求（如：玩遊戲時詢問天氣）而使用此標籤。對於無關要求，請禮貌地拒絕或導回主任務。\n"
+            f"- `[WAIT_FOR_USER_INPUT]`\n"
+            f"- `[AGENT_INPUT_NEEDED, reason=\"...\", summary=\"...\"]`\n"
+            f"- `[CONVERSATION_ENDED, summary=\"...\"]`\n"
+            f"- `[TOOL_ACCESS_NEEDED, tool=\"...\", query=\"...\"]`\n"
             f"\n## 對話上下文 ##\n" + "\n".join(context_lines) +
             f"\n\n請根據上述規則與上下文給出回覆："
         )
 
     def _parse_response(self, full_text):
         waiting_match = "[WAIT_FOR_USER_INPUT]" in full_text
-        agent_input_match = re.search(r'\[AGENT_INPUT_NEEDED,\s*reason="([^"]+)"\]', full_text)
-        implicit_match = re.search(r'\[IMPLICIT_ENDED,\s*reason="([^"]+)"\]', full_text)
-        explicit_match = "[EXPLICIT_ENDED]" in full_text
+        agent_input_match = re.search(r'\[AGENT_INPUT_NEEDED,\s*reason="([^"]+)"(?:,\s*summary="([^"]+)")?\]', full_text)
+        convo_ended_match = re.search(r'\[CONVERSATION_ENDED,\s*summary="([^"]+)"\]', full_text)
         tool_match = re.search(r'\[TOOL_ACCESS_NEEDED,\s*tool="([^"]+)",\s*query="([^"]+)"\]', full_text)
         
         reply_text = full_text
         reply_text = re.sub(r'\[AGENT_INPUT_NEEDED,.*?\]', '', reply_text)
-        reply_text = re.sub(r'\[IMPLICIT_ENDED,.*?\]', '', reply_text)
+        reply_text = re.sub(r'\[CONVERSATION_ENDED,.*?\]', '', reply_text)
         reply_text = re.sub(r'\[TOOL_ACCESS_NEEDED,.*?\]', '', reply_text)
-        reply_text = reply_text.replace("[WAIT_FOR_USER_INPUT]", "")
-        reply_text = reply_text.replace("[EXPLICIT_ENDED]", "").strip()
-        reply_text = re.sub(r'^社交回覆：\s*', '', reply_text)
+        reply_text = reply_text.replace("[WAIT_FOR_USER_INPUT]", "").strip()
 
         return {
             "text": reply_text,
             "is_waiting": waiting_match,
             "agent_input_needed": agent_input_match.group(1) if agent_input_match else None,
-            "implicit_ended": implicit_match.group(1) if implicit_match else None,
-            "explicit_ended": explicit_match,
+            "summary": (convo_ended_match.group(1) if convo_ended_match else 
+                        agent_input_match.group(2) if (agent_input_match and agent_input_match.lastindex >= 2) else None),
+            "conversation_ended": convo_ended_match is not None,
             "tool_needed": {"tool": tool_match.group(1), "query": tool_match.group(2)} if tool_match else None
         }
 
     async def execute_hermes_tool(self, tool_name, query):
+        toolset_map = {
+            "google_drive": "google-workspace",
+            "drive": "google-workspace",
+            "gmail": "google-workspace",
+            "calendar": "google-workspace",
+            "web_search": "web",
+            "browser": "browser",
+            "terminal": "terminal",
+            "vision_analyze": "vision",
+            "read_file": "file"
+        }
+        target_toolset = toolset_map.get(tool_name, tool_name)
+        
         url = f"{HERMES_API_URL}/v1/chat/completions"
         payload = {
             "model": "hermes-agent",
+            "toolsets": [target_toolset],
             "messages": [
-                {"role": "user", "content": f"Please execute the tool '{tool_name}' for this query: '{query}'. Return only the result."}
+                {"role": "system", "content": "You are a minimalist tool executor. Return ONLY raw output."},
+                {"role": "user", "content": f"Execute tool '{tool_name}' for query: '{query}'"}
             ],
             "stream": False
         }
-        async with httpx.AsyncClient(timeout=120.0) as client:
+        
+        async with httpx.AsyncClient(timeout=180.0) as client:
             resp = await client.post(url, json=payload)
             resp.raise_for_status()
             return resp.json()["choices"][0]["message"]["content"]
@@ -123,24 +132,21 @@ class LineProxyEngine:
                 self.history.write_log(f"SENT: {result['text']}")
                 self.state["sent_messages"].append(result["text"].strip())
             
+            if result["summary"]:
+                summary_report = f"\n[REPORT]\n{result['summary']}\n[/REPORT]"
+                self.history.write_log(f"--- TASK SUMMARY ---\n{result['summary']}\n--------------------")
+                print(summary_report)
+
             if result["agent_input_needed"]:
                 self.state.update({
                     "exit_at": time.time() + AGENT_INPUT_WAIT,
                     "final_report": f"AGENT_INPUT_NEEDED: {result['agent_input_needed']}"
                 })
-                self.history.write_log(f"Exit Triggered: AGENT_INPUT_NEEDED for '{result['agent_input_needed']}'.")
-            elif result["implicit_ended"]:
+            elif result["conversation_ended"]:
                 self.state.update({
-                    "exit_at": time.time() + IMPLICIT_END_WAIT,
-                    "final_report": f"IMPLICIT_ENDED: {result['implicit_ended']}"
+                    "exit_at": time.time() + CONVERSATION_END_WAIT,
+                    "final_report": "Conversation ended."
                 })
-                self.history.write_log(f"Exit Triggered: IMPLICIT_ENDED for '{result['implicit_ended']}'.")
-            elif result["explicit_ended"]:
-                self.state.update({
-                    "exit_at": time.time() + EXPLICIT_END_WAIT,
-                    "final_report": "Conversation explicitly ended."
-                })
-                self.history.write_log("Exit Triggered: EXPLICIT_ENDED.")
             elif result["tool_needed"]:
                 await line_utils.send_message(self.page, f"[系統] 正在執行工具: {result['tool_needed']['tool']}...")
                 try:
@@ -149,8 +155,7 @@ class LineProxyEngine:
                     latest = await line_utils.extract_messages(self.page)
                     await self.generate_and_send_reply(latest)
                 except Exception as e:
-                    error_report = f"[系統錯誤] 工具 {result['tool_needed']['tool']} 執行失敗: {str(e)}"
-                    await line_utils.send_message(self.page, error_report)
+                    await line_utils.send_message(self.page, f"[系統錯誤] 工具執行失敗: {str(e)}")
                 
                 self.state.update({
                     "exit_at": time.time() + TOOL_WAIT,
@@ -178,8 +183,7 @@ class LineProxyEngine:
 
         while True:
             if time.time() - start_time > RUNTIME_TIMEOUT:
-                timeout_msg = "[RESTART_REQUIRED] Runtime limit reached."
-                self.state["final_report"] = timeout_msg
+                self.state["final_report"] = "[RESTART_REQUIRED] Runtime limit reached."
                 break
             if self.state.get("exit_at") and time.time() >= self.state["exit_at"]:
                 break
@@ -192,3 +196,5 @@ class LineProxyEngine:
                     if self.state.get("exit_at"): self.state["exit_at"] = None
                     await self.generate_and_send_reply(msgs)
             await asyncio.sleep(POLL_INTERVAL)
+        
+        return self.state.get("final_report")
