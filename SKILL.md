@@ -21,7 +21,7 @@ Ensure the following variables are set in `~/.hermes/.env`. See `.env.example` f
 To avoid sending messages to the wrong group or contact when names are similar, you MUST follow this sequence:
 1. **List**: Call `list_chats(keyword="NAME")` first.
 2. **Identify**: Extract the `chat_id` from the correct entry in the results.
-3. **Execute**: Pass both `chat_name` AND `chat_id` to subsequent tools (`open_chat`, `send_line_message`, etc.).
+3. **Execute**: Pass both `chat_name` AND `chat_id` to subsequent tools (`run_task`, `open_chat`, `send_line_message`, etc.).
 
 **3. Long-Running Task Execution Pattern:**
 Always use the `terminal` tool in `background=true` mode. Pass the `chat_id` if available to ensure the engine locks onto the correct room:
