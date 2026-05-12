@@ -1,7 +1,7 @@
 import os
 import time
 from typing import List, Dict, Any
-from config import LOG_DIR
+from config import LOG_DIR, OWNER_NAME
 
 class HistoryManager:
     def __init__(self, chat_name: str) -> None:
@@ -25,7 +25,7 @@ class HistoryManager:
 
         for m in msgs:
             text = m["text"].strip()
-            if m["is_self_dom"] and text not in sent_messages:
+            if m.get("sender") in ["Hermes", OWNER_NAME] and text not in sent_messages:
                 sent_messages.append(text)
 
         state = {
@@ -37,7 +37,7 @@ class HistoryManager:
 
         if msgs:
             latest = msgs[-1]
-            is_hermes = latest.get("has_hermes_prefix", False) or latest.get("is_self_dom", False)
+            is_hermes = latest.get("sender") in ["Hermes", OWNER_NAME]
             
             if not is_hermes:
                 state["startup_action_needed"] = True
@@ -59,8 +59,7 @@ class HistoryManager:
         for m in msgs:
             text = m["text"].strip()
             timestamp = m.get("timestamp", "Unknown Time")
-            is_hermes = m.get("is_self_dom", False)
-            sender = "Hermes (AI Proxy)" if is_hermes else "User/Staff"
+            sender = m.get("sender", "Unknown")
             context.append(f"[{timestamp}] {sender}: {text}")
             
         # 2. Append internally tracked but NOT-YET-SENT status updates (like Tool Results)

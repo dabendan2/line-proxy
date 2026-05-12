@@ -187,7 +187,7 @@ class LineProxyEngine:
                 msgs = await line_utils.extract_messages(self.page)
                 if msgs:
                     latest = msgs[-1]
-                    is_hermes = latest.get("has_hermes_prefix", False) or latest.get("is_self_dom", False)
+                    is_hermes = latest.get("sender") in ["Hermes", OWNER_NAME]
                     is_new = latest["text"].strip() != self.state.get("last_processed_msg", "").strip()
                     if not is_hermes and is_new:
                         if self.state.get("exit_at"): self.state["exit_at"] = None

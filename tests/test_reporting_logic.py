@@ -37,9 +37,9 @@ async def get_ai_parsed_response(task, history):
 async def test_unified_conversation_ended_tag():
     task = "簡單訂位"
     history = [
-        {"text": "5/12 13:00 有位子嗎？", "is_self_dom": True},
-        {"text": "有的，已保留。", "is_self_dom": False},
-        {"text": "好的，謝謝！", "is_self_dom": True}
+        {"text": "5/12 13:00 有位子嗎？", "sender": "俊羽"},
+        {"text": "有的，已保留。", "sender": "Chat"},
+        {"text": "好的，謝謝！", "sender": "Hermes"}
     ]
     raw_text, parsed = await get_ai_parsed_response(task, history)
     assert "[CONVERSATION_ENDED" in raw_text

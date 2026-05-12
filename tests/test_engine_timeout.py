@@ -20,7 +20,7 @@ async def test_engine_runtime_timeout_logging():
     mock_page.bring_to_front = AsyncMock()
     
     with patch("line_utils.select_chat", new_callable=AsyncMock, return_value={"status": "success"}), \
-         patch("line_utils.extract_messages", new_callable=AsyncMock, return_value=[{"text": "m", "is_self_dom": False}]), \
+         patch("line_utils.extract_messages", new_callable=AsyncMock, return_value=[{"text": "m", "sender": "Chat"}]), \
          patch("history_manager.HistoryManager.write_log") as mock_log, \
          patch("google.genai.Client"), \
          patch("engine.POLL_INTERVAL", 0.01), \
