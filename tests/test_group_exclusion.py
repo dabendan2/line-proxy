@@ -3,65 +3,49 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import sys
 import os
 
-# Ensure src is in path
 sys.path.append(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src"))
 import line_utils
 
 @pytest.mark.asyncio
 async def test_select_chat_avoids_groups_with_same_name():
-    """
-    REGRESSION TEST: Ensures that searching for 'Wayne' selects the private chat 'Wayne'
-    and NOT the group 'Wayne, Nada... (4)'.
-    """
     mock_page = MagicMock()
-    mock_page.evaluate = AsyncMock()
+    mock_page.evaluate = AsyncMock(return_value=[])
     mock_page.keyboard = MagicMock()
     mock_page.keyboard.press = AsyncMock()
 
-    # Mock the Header (initially not visible or wrong)
     mock_header = AsyncMock()
-    mock_header.is_visible = AsyncMock(return_value=False)
+    mock_header.is_visible = AsyncMock(side_effect=[False, True, True])
+    mock_header.inner_text = AsyncMock(return_value="Wayne")
 
-    # Mock Search Results
-    # Result 0: Group with same name start
     mock_title_0 = AsyncMock()
     mock_title_0.inner_text = AsyncMock(return_value="Wayne, Nada (4)")
-    
-    # Result 1: Strict match
     mock_title_1 = AsyncMock()
     mock_title_1.inner_text = AsyncMock(return_value="Wayne")
     mock_title_1.click = AsyncMock()
 
     mock_list = MagicMock()
     mock_list.count = AsyncMock(return_value=2)
-    mock_list.nth = MagicMock(side_effect=[mock_title_0, mock_title_1])
-
-    mock_search = AsyncMock()
-    mock_search.click = AsyncMock()
-    mock_search.fill = AsyncMock()
+    mock_list.nth = MagicMock(side_effect=[mock_title_0, mock_title_1, mock_title_1])
+    mock_list.first = mock_title_0
 
     def side_effect(selector, **kwargs):
-        if "Header" in selector or "header" in selector:
-            l = MagicMock(); l.first = mock_header; return l
-        if "Search" in selector or "搜尋" in selector:
-            l = MagicMock(); l.first = mock_search; return l
-        # Default fallback for new selectors (like Profile Chat button)
         l = MagicMock()
-        l.first = AsyncMock()
-        l.first.is_visible = AsyncMock(return_value=False)
-        # Ensure the list locator is still returned for the title selector
-        from config import CHATLIST_ITEM_TITLE_SELECTOR
-        if selector == CHATLIST_ITEM_TITLE_SELECTOR:
-            return mock_list
-        return l
+        if "Header" in selector or "header" in selector: l.first = mock_header; return l
+        if "Friend" in selector or "aria-label" in selector: 
+            f = AsyncMock(); f.is_visible = AsyncMock(return_value=True); l.first = f; return l
+        if "Search" in selector or "搜尋" in selector or "input" in selector:
+            s = AsyncMock(); s.is_visible = AsyncMock(return_value=True); l.first = s; return l
+        if "Chat" in selector or "聊天" in selector:
+            c = AsyncMock(); c.is_visible = AsyncMock(return_value=True); l.first = c; return l
+        if "message_input" in selector or "contenteditable" in selector:
+            i = AsyncMock(); i.is_visible = AsyncMock(return_value=True); l.first = i; return l
+        return mock_list
 
     mock_page.locator = MagicMock(side_effect=side_effect)
+    mock_page.get_by_text = MagicMock(return_value=mock_title_1)
 
     with patch("line_utils.asyncio.sleep", AsyncMock()):
         result = await line_utils.select_chat(mock_page, "Wayne")
-        
         assert result["status"] == "success"
-        # Crucial: Ensure it did NOT click index 0 (the group)
         mock_title_0.click.assert_not_called()
-        # Crucial: Ensure it CLICKED index 1 (the strict match)
         mock_title_1.click.assert_called_once()

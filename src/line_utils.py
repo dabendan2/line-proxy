@@ -1,126 +1,114 @@
 import asyncio
+import os
 from typing import List, Dict, Optional, Any
 from config import EXTENSION_ID, HERMES_PREFIX, MESSAGE_INPUT_SELECTOR, CHATROOM_HEADER_SELECTOR, \
     CHATLIST_ITEM_TITLE_SELECTOR, CHATLIST_ITEM_SELECTOR, CHATROOM_CONTAINER_SELECTOR, \
     MESSAGE_ITEM_SELECTOR, MESSAGE_CONTENT_SELECTOR, MESSAGE_TIME_SELECTOR, SENDER_NAME_SELECTOR
 
 async def get_line_page(context: Any) -> Any:
-    """Finds the active LINE Extension page."""
     for page in context.pages:
-        if EXTENSION_ID in page.url:
-            return page
+        if EXTENSION_ID in page.url: return page
     return None
 
 async def select_chat(page: Any, chat_name: str) -> Dict[str, Any]:
-    """
-    Ensures the correct chat is selected in the UI using strict title matching.
-    
-    Technical Notes:
-    - Automatically switches to the 'CHATS' navigation tab to prevent opening 
-      profile overlays from the 'Friends' tab.
-    - Clears and performs a fresh search to handle lazy-loaded or hidden items.
-    - Uses 'force=True' on click to bypass pointer-events interception by the 
-      outer button wrapper in the LINE UI.
-    """
+    header_locator = page.locator(CHATROOM_HEADER_SELECTOR).first
     try:
-        # 0. Ensure we are in the 'CHATS' tab
-        await page.evaluate('''() => {
-            const icons = Array.from(document.querySelectorAll('button, [role="button"], a'));
-            const chatIcon = icons.find(el => 
-                (el.innerText && el.innerText.includes('Chat')) || 
-                (el.getAttribute('aria-label') && el.getAttribute('aria-label').includes('Chat'))
-            );
-            if (chatIcon) chatIcon.click();
-        }''')
-        await asyncio.sleep(1)
-
-        # 1. Check current header first
-        header_locator = page.locator(CHATROOM_HEADER_SELECTOR).first
         if await header_locator.is_visible():
-            text = (await header_locator.inner_text()).strip()
-            # Strict header check: must match name and NOT contain group count parenthesis
-            if text == chat_name or (chat_name in text and "(" not in text):
-                return {"status": "success", "info": f"Chat '{chat_name}' is already selected."}
+            if (await header_locator.inner_text()).strip() == chat_name:
+                return {"status": "success", "info": f"Chat '{chat_name}' selected."}
+    except: pass
+    return await find_private_chat(page, chat_name)
 
-        # 2. Perform a search to be sure
-        from config import SEARCH_INPUT_SELECTOR
-        search_input = page.locator(SEARCH_INPUT_SELECTOR).first
+async def find_private_chat(page: Any, chat_name: str) -> Dict[str, Any]:
+    try:
+        # 1. Navigation to Friends Tab
+        friend_btn = page.locator('[aria-label="Friend"]').first
+        if await friend_btn.is_visible():
+            await friend_btn.click()
+            try: await page.locator('[class*="friendlist"]').first.wait_for(state="visible", timeout=2000)
+            except: pass
+
+        # 2. Search
+        search_input = page.locator('input[placeholder*="Search"], input[placeholder*="搜尋"], .search_input').first
         await search_input.click()
         await page.keyboard.press("Control+A")
         await page.keyboard.press("Backspace")
         await search_input.fill(chat_name)
-        await asyncio.sleep(2)
-
-        # 3. Click the target item in the list
-        title_locator = page.locator(CHATLIST_ITEM_TITLE_SELECTOR)
-        count = await title_locator.count()
-        target_item = None
-        for i in range(count):
-            loc = title_locator.nth(i)
-            text = await loc.inner_text()
-            if text.strip() == chat_name:
-                target_item = loc
-                break
         
-        # Fallback: if strict match fails, try partial but ensure no parenthesis (group indicator)
-        if not target_item:
-            for i in range(count):
-                loc = title_locator.nth(i)
-                text = await loc.inner_text()
-                if chat_name in text.strip() and "(" not in text:
-                    target_item = loc
-                    break
+        # 3. Match using Locator (Strict)
+        list_locator = page.locator(CHATLIST_ITEM_TITLE_SELECTOR)
+        # Use wait_for to be event-driven
+        try: await list_locator.first.wait_for(state="visible", timeout=3000)
+        except: pass
         
-        if target_item:
-            await target_item.click(force=True)
-            await asyncio.sleep(2)
+        count = await list_locator.count()
+        if not isinstance(count, int): count = 0
             
-            # 4. Handle Profile Overlay (Robustness improvement)
-            # If a profile popup opens instead of the chat, click the 'Chat' button.
-            # Playwright locators pierce Shadow DOM by default.
-            chat_btn_selectors = [
-                'button:has-text("Chat")', 'button:has-text("聊天")',
-                '[role="button"]:has-text("Chat")', '[role="button"]:has-text("聊天")',
-                'span:has-text("Chat")', 'span:has-text("聊天")'
-            ]
-            for selector in chat_btn_selectors:
-                chat_btn = page.locator(selector).first
-                if await chat_btn.is_visible():
-                    await chat_btn.click()
-                    await asyncio.sleep(2)
-                    break
-
-            return {"status": "success"}
+        target_indices = []
+        for i in range(count):
+            text = (await list_locator.nth(i).inner_text()).strip()
+            if text == chat_name:
+                target_indices.append(i)
         
-        return {"status": "not_found", "error": f"Could not find chat containing '{chat_name}'"}
+        if len(target_indices) == 0:
+            # JS Fallback
+            js_matches = await page.evaluate(f'''(target) => {{
+                const items = Array.from(document.querySelectorAll('*[class*="item"], *[class*="Item"]'));
+                const res = [];
+                items.forEach(el => {{
+                    const lines = el.innerText ? el.innerText.split('\\n').map(l => l.trim()) : [];
+                    if (lines.includes(target) && el.offsetHeight > 0) res.push(target);
+                }});
+                return Array.from(new Set(res));
+            }}''', chat_name)
+            if not js_matches or len(js_matches) == 0:
+                return {"status": "not_found", "error": f"No friend found with name '{chat_name}'"}
+            if len(js_matches) > 1:
+                return {"status": "ambiguous", "error": "Multiple matches found.", "matches": js_matches}
+        elif len(target_indices) > 1:
+            return {"status": "ambiguous", "error": "Multiple matches found.", "matches": [chat_name] * len(target_indices)}
+
+        # 4. Click
+        if len(target_indices) > 0:
+            await list_locator.nth(target_indices[0]).click(force=True)
+        else:
+            await page.evaluate(f'''(target) => {{
+                const items = Array.from(document.querySelectorAll('*[class*="item"], *[class*="Item"]'));
+                const el = items.find(el => el.innerText.trim().split('\\n').map(l=>l.trim()).includes(target) && el.offsetHeight > 0);
+                if (el) {{ el.click(); return true; }}
+                return false;
+            }}''', chat_name)
+            
+        # 5. Profile Bridge
+        chat_btn = page.locator('button:has-text("Chat"), button:has-text("聊天"), [role="button"]:has-text("Chat")').first
+        if await chat_btn.is_visible():
+            await chat_btn.click()
+            await asyncio.sleep(1)
+        
+        # 6. Verification
+        header_locator = page.locator(CHATROOM_HEADER_SELECTOR).first
+        input_area = page.locator(MESSAGE_INPUT_SELECTOR).first
+        
+        if await header_locator.is_visible():
+            if (await header_locator.inner_text()).strip() == chat_name:
+                return {"status": "success", "chat_name": chat_name}
+        
+        if await input_area.is_visible():
+            return {"status": "success", "chat_name": chat_name}
+
+        return {"status": "error", "error": "Could not verify chatroom opened."}
+
     except Exception as e:
         return {"status": "error", "error": str(e)}
 
 async def extract_messages(page: Any, owner_name: str = "Owner", chat_name: str = "Chat") -> List[Dict[str, Any]]:
-    """
-    Retrieves messages from the active chatroom.
-    
-    Technical Notes:
-    - DOM Quirk: LINE Extension's message_list container often lists the newest 
-      messages at the TOP of the DOM tree. 
-    - Self-Detection: Standard CSS classes are randomized. We rely on the 
-      'data-direction=reverse' attribute and 'justifyContent' flex styles.
-    - Sender Logic: 
-        - If self + [Hermes] -> 'Hermes'
-        - If self -> owner_name
-        - If other -> Grab name from SENDER_NAME_SELECTOR or fallback to chat_name
-    - Chronological Order: The final list is reversed to ensure the Python Engine 
-      receives Oldest-First order (msgs[-1] is the latest).
-    """
+    # TIME INHERITANCE
     try:
-        # Force scroll to bottom
-        await page.evaluate(f'''() => {{
-            const chatroom = document.querySelector('{CHATROOM_CONTAINER_SELECTOR}');
-            if (chatroom) {{
-                chatroom.scrollTop = chatroom.scrollHeight;
-            }}
-        }}''')
-        await asyncio.sleep(1.5)
+        chatroom = CHATROOM_CONTAINER_SELECTOR
+        await page.evaluate(f'''(sel) => {{
+            const el = document.querySelector(sel);
+            if (el) el.scrollTop = el.scrollHeight;
+        }}''', chatroom)
         
         script = f"""
         () => {{
@@ -128,70 +116,38 @@ async def extract_messages(page: Any, owner_name: str = "Owner", chat_name: str 
             const prefix = "{HERMES_PREFIX}";
             const ownerName = "{owner_name}";
             const chatName = "{chat_name}";
-            
             const chatroom = document.querySelector('{CHATROOM_CONTAINER_SELECTOR}');
             if (!chatroom) return [];
-
             const items = Array.from(chatroom.querySelectorAll('{MESSAGE_ITEM_SELECTOR}')).filter(el => {{
                 const style = window.getComputedStyle(el);
                 return style.display !== 'none' && style.visibility !== 'hidden' && el.offsetHeight > 0;
             }});
-            
             items.forEach(msg => {{
                 const contentEl = msg.querySelector('{MESSAGE_CONTENT_SELECTOR}');
                 if (!contentEl) return;
-                
                 const msgText = contentEl.innerText.trim();
                 const timeEl = msg.querySelector('{MESSAGE_TIME_SELECTOR}');
                 const timestamp = timeEl ? timeEl.innerText.trim() : "";
-                
-                // RELIABLE SELF-DETECTION
                 const direction = msg.getAttribute('data-direction');
                 const style = window.getComputedStyle(msg);
-                const isSelf = direction === 'reverse' || 
-                               style.justifyContent === 'flex-end' ||
-                               (msgText && msgText.startsWith(prefix));
-
-                // SENDER DETERMINATION
+                const isSelf = direction === 'reverse' || style.justifyContent === 'flex-end' || (msgText && msgText.startsWith(prefix));
                 let sender = "";
-                if (isSelf) {{
-                    sender = msgText.startsWith(prefix) ? "Hermes" : ownerName;
-                }} else {{
-                    const nameEl = msg.querySelector('{SENDER_NAME_SELECTOR}');
-                    sender = nameEl ? nameEl.innerText.trim() : chatName;
-                }}
-
-                results.push({{
-                    sender: sender,
-                    text: msgText.replace(prefix, "").trim(),
-                    timestamp: timestamp
-                }});
+                if (isSelf) sender = msgText.startsWith(prefix) ? "Hermes" : ownerName;
+                else {{ const nameEl = msg.querySelector('{SENDER_NAME_SELECTOR}'); sender = nameEl ? nameEl.innerText.trim() : chatName; }}
+                results.push({{ sender, text: msgText.replace(prefix, "").trim(), timestamp }});
             }});
-            
-            // Reverse to maintain Chronological Order (Oldest -> Newest)
             const chronMessages = results.reverse();
-
-            // TIME INHERITANCE: Fill empty timestamps from the next message 
-            // (LINE only shows time on the last message of a cluster)
             for (let i = chronMessages.length - 2; i >= 0; i--) {{
-                if (!chronMessages[i].timestamp && chronMessages[i+1].timestamp) {{
-                    // Only inherit if the sender is the same (cluster logic)
-                    if (chronMessages[i].sender === chronMessages[i+1].sender) {{
-                        chronMessages[i].timestamp = chronMessages[i+1].timestamp;
-                    }}
+                if (!chronMessages[i].timestamp && chronMessages[i+1].timestamp && chronMessages[i].sender === chronMessages[i+1].sender) {{
+                    chronMessages[i].timestamp = chronMessages[i+1].timestamp;
                 }}
             }}
-            
             return chronMessages;
         }}
         """
         data = await page.evaluate(script)
         return data if data else []
-    except Exception as e:
-        # Instead of just printing and returning [], re-raise or handle properly
-        # For the engine to know there's a problem, we should let it bubble or return None
-        print(f"Extraction Error: {e}")
-        raise e
+    except Exception as e: raise e
 
 async def send_message(page: Any, text: str) -> None:
     message_area = page.locator(MESSAGE_INPUT_SELECTOR).first

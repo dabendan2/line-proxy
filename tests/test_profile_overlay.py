@@ -1,57 +1,53 @@
 import pytest
-from unittest.mock import MagicMock, AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
+import sys
+import os
+
+sys.path.append(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src"))
 import line_utils
 
 @pytest.mark.asyncio
 async def test_select_chat_handles_profile_overlay():
-    """
-    Test that select_chat clicks the 'Chat' button if a profile overlay appears.
-    """
     mock_page = MagicMock()
-    mock_page.evaluate = AsyncMock()
+    mock_page.evaluate = AsyncMock(return_value=[])
     mock_page.keyboard = MagicMock()
     mock_page.keyboard.press = AsyncMock()
-    
-    # 1. Mock Header (not currently in the right chat)
+
     mock_header = AsyncMock()
-    mock_header.is_visible = AsyncMock(return_value=False)
-    
-    # 2. Mock Search Input
-    mock_search = AsyncMock()
-    mock_search.click = AsyncMock()
-    mock_search.fill = AsyncMock()
-    
-    # 3. Mock Chat List Item
+    mock_header.is_visible = AsyncMock(side_effect=[False, True, True])
+    mock_header.inner_text = AsyncMock(return_value="Nabi")
+
     mock_title = AsyncMock()
     mock_title.inner_text = AsyncMock(return_value="Nabi")
     mock_title.click = AsyncMock()
-    
+
+    mock_chat_btn = AsyncMock()
+    mock_chat_btn.is_visible = AsyncMock(return_value=True)
+    mock_chat_btn.click = AsyncMock()
+
     mock_list = MagicMock()
     mock_list.count = AsyncMock(return_value=1)
     mock_list.nth = MagicMock(return_value=mock_title)
-    
-    # 4. Mock Profile 'Chat' Button
-    # We'll make it visible for the first selector to simulate a match
-    mock_chat_btn = AsyncMock()
-    mock_chat_btn.is_visible = AsyncMock(side_effect=[True, False, False, False, False, False])
-    mock_chat_btn.click = AsyncMock()
-    
+    mock_list.first = mock_title
+
     def side_effect(selector, **kwargs):
-        if "chatroomHeader" in selector:
-            l = MagicMock(); l.first = mock_header; return l
-        if "Search" in selector or "搜尋" in selector:
-            l = MagicMock(); l.first = mock_search; return l
-        if "has-text(\"Chat\")" in selector or "has-text(\"聊天\")" in selector:
-            l = MagicMock(); l.first = mock_chat_btn; return l
+        l = MagicMock()
+        if "Header" in selector or "header" in selector: l.first = mock_header; return l
+        if "Friend" in selector or "aria-label" in selector: 
+            f = AsyncMock(); f.is_visible = AsyncMock(return_value=True); l.first = f; return l
+        if "Search" in selector or "搜尋" in selector or "input" in selector:
+            s = AsyncMock(); s.is_visible = AsyncMock(return_value=True); l.first = s; return l
+        if "Chat" in selector or "聊天" in selector:
+            l.first = mock_chat_btn; return l
+        if "message_input" in selector or "contenteditable" in selector:
+            i = AsyncMock(); i.is_visible = AsyncMock(return_value=True); l.first = i; return l
         return mock_list
 
     mock_page.locator = MagicMock(side_effect=side_effect)
-    
+    mock_page.get_by_text = MagicMock(return_value=mock_title)
+
     with patch("line_utils.asyncio.sleep", AsyncMock()):
         result = await line_utils.select_chat(mock_page, "Nabi")
-        
-    assert result["status"] == "success"
-    # Verify that the profile chat button was clicked
-    mock_chat_btn.click.assert_called_once()
-    # Verify the initial contact was also clicked
-    mock_title.click.assert_called_once_with(force=True)
+        assert result["status"] == "success"
+        mock_title.click.assert_called_once()
+        mock_chat_btn.click.assert_called_once()
