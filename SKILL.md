@@ -13,13 +13,22 @@ This server provides direct tools to interact with the LINE Chrome Extension via
 
 **NEVER** call `run_task` directly via the tool interface for long missions. It **WILL** time out after 60s and create an "orphan process" that locks the chat.
 
-**Correct Execution Pattern:**
+**1. Long-Running Task Execution Pattern:**
 Always use the `terminal` tool in `background=true` mode:
 ```python
 terminal(
     command="mcporter call line_proxy.run_task chat_name:\"NAME\" task:\"DESCRIPTION\" --timeout 3600000",
     background=true,
     notify_on_complete=true
+)
+```
+
+**2. Testing & Git Commit Safety Pattern:**
+To prevent incomplete test runs and protect Git integrity in Hermes environments, you MUST explicitly declare the timeout. If `TIMEOUT_SET` is missing or below 180, the execution will be blocked.
+```python
+terminal(
+    command="export TIMEOUT_SET=180 && git commit -m '...' --verify",
+    timeout=180
 )
 ```
 
