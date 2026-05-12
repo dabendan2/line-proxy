@@ -9,6 +9,20 @@ tags: [line, mcp, automation, proxy]
 
 This server provides direct tools to interact with the LINE Chrome Extension via CDP (Port 9222). It is optimized for **Hermes Terminal Notifications**, ensuring proactive feedback for all automated tasks.
 
+## ⚠️ MANDATORY EXECUTION PROTOCOL
+
+**NEVER** call `run_task` directly via the tool interface for long missions. It **WILL** time out after 60s and create an "orphan process" that locks the chat.
+
+**Correct Execution Pattern:**
+Always use the `terminal` tool in `background=true` mode:
+```python
+terminal(
+    command="mcporter call line_proxy.run_task chat_name:\"NAME\" task:\"DESCRIPTION\" --timeout 3600000",
+    background=true,
+    notify_on_complete=true
+)
+```
+
 ## 🛠 Latest Technical Discoveries (May 2026)
 
 ### 1. DOM Traversal Quirk: Newest-First
@@ -44,14 +58,17 @@ terminal(
 ### 2. Chat Navigation & Inspection
 - **`find_chat(chat_name)`**: Searches for and opens a chat window. Includes a screenshot.
 - **`get_line_messages(chat_name, limit)`**: 
-  - **Returns**: `[{"text": "...", "is_self_dom": bool, "timestamp": "..."}]`.
+  - **Returns**: `[{"sender": "...", "text": "...", "timestamp": "..."}]`.
+  - **Sender Identification**: Automatically distinguishes between 'Owner', 'Hermes', and group members.
+  - **Timestamp Inheritance**: Clustered messages inherit timestamps from the latest message in the cluster.
   - **Order**: Chronological (Oldest First).
 
 ### 3. Messaging
 - **`send_line_message(chat_name, text)`**: Sends a message with the `[Hermes]` prefix.
 
 ### 4. Interactive Tasks (The "Brain")
-- **`run_task(chat_name, task)`**: Synchronous AI-driven task execution.
+- **`run_task(chat_name, task)`**: Synchronous AI-driven task execution. 
+  - **WARNING**: Do not call directly. See "MANDATORY EXECUTION PROTOCOL" above.
 
 ## Maintenance & Logs
 - **Logs**: `~/.line-proxy/logs/{chat_name}.log`
