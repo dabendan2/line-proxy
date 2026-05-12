@@ -52,9 +52,9 @@ async def test_select_chat_with_search_success():
         mock_loc = MagicMock(); mock_loc.first = mock_header
         mock_page.locator.return_value = mock_loc
 
-        # Mock list_chats and open_chat
+        # Mock find_chats and open_chat
         mock_chats = [{"name": "dabendan.test", "type": "private", "chat_id": "u123"}]
-        with patch("line_utils.list_chats", return_value=mock_chats), \
+        with patch("line_utils.find_chats", return_value=mock_chats), \
              patch("line_utils.open_chat", return_value={"status": "success"}) as mock_open:
     
             result = await line_utils.select_chat(mock_page, "dabendan.test")
@@ -74,8 +74,8 @@ async def test_select_chat_not_found():
         mock_loc = MagicMock(); mock_loc.first = mock_header
         mock_page.locator.return_value = mock_loc
 
-        # Mock list_chats to return empty
-        with patch("line_utils.list_chats", return_value=[]):
+        # Mock find_chats to return empty
+        with patch("line_utils.find_chats", return_value=[]):
             result = await line_utils.select_chat(mock_page, "ghost")
             assert result["status"] == "not_found"
 

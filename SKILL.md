@@ -19,7 +19,7 @@ Ensure the following variables are set in `~/.hermes/.env`. See `.env.example` f
 
 **2. Precise Chat Interaction Workflow (The "Ladder" Pattern):**
 To avoid sending messages to the wrong group or contact when names are similar, you MUST follow this sequence:
-1. **List**: Call `list_chats(keyword="NAME")` first.
+1. **Find**: Call `find_chats(keyword="NAME")` first.
 2. **Identify**: Extract the `chat_id` from the correct entry in the results.
 3. **Execute**: Pass both `chat_name` AND `chat_id` to subsequent tools (`run_task`, `open_chat`, `send_line_message`, etc.).
 
@@ -76,7 +76,7 @@ terminal(
 - **`prepare_line_instance(port, profile_name)`**: Ensures Chromium is running with the correct profile.
 
 ### 2. Chat Navigation & Inspection
-- **`list_chats(keyword)`**: 
+- **`find_chats(keyword)`**: 
   - Searches for chats (private or group) matching the keyword.
   - **Returns**: `[{"name": "...", "type": "...", "chat_id": "..."}]`.
   - **Deduplication**: Results are automatically deduplicated by `chat_id`.
@@ -108,4 +108,4 @@ terminal(
 
 ## Maintenance & Logs
 - **Logs**: `~/.line-proxy/logs/{chat_name}.log`
- - **Tests**: `pytest tests/test_order_logic.py` (Run within the venv)
+ - **Tests**: `pytest tests/test_chat_navigation.py` (Run within the venv)

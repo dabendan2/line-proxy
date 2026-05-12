@@ -99,7 +99,7 @@ async def select_chat(page: Any, chat_name: str, chat_id: Optional[str] = None) 
         pass
         
     # If not selected or input not ready, we search and open
-    chats = await list_chats(page, chat_name)
+    chats = await find_chats(page, chat_name)
     if isinstance(chats, dict) and chats.get("status") == "error":
         return chats
         
@@ -119,8 +119,8 @@ async def select_chat(page: Any, chat_name: str, chat_id: Optional[str] = None) 
         
     return await open_chat(page, target["name"], target["type"], target["chat_id"])
 
-async def list_chats(page: Any, keyword: str) -> List[Dict[str, str]]:
-    """Lists chats matching the keyword with their types and unique chat_ids."""
+async def find_chats(page: Any, keyword: str) -> List[Dict[str, str]]:
+    """Finds chats matching the keyword with their types and unique chat_ids."""
     try:
         # 1. Navigation to Friends Tab
         friend_btn = page.locator('[aria-label="Friend"]').first
@@ -210,7 +210,7 @@ async def list_chats(page: Any, keyword: str) -> List[Dict[str, str]]:
         
         return list(unique_matches.values())
     except Exception as e:
-        return {"status": "error", "error": f"Failed to list chats: {str(e)}"}
+        return {"status": "error", "error": f"Failed to find chats: {str(e)}"}
 
 async def open_chat(page: Any, chat_name: str, chat_type: str, chat_id: str) -> Dict[str, Any]:
     """Navigates to and opens a specific chat using ONLY chat_id for selection."""

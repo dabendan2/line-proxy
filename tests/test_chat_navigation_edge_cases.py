@@ -9,9 +9,9 @@ sys.path.append(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__f
 import line_utils
 
 @pytest.mark.asyncio
-async def test_list_chats_deduplication_and_classification():
+async def test_find_chats_deduplication_and_classification():
     """
-    Test the classification logic in list_chats. 
+    Test the classification logic in find_chats. 
     Since the actual logic is in JS, we mock the evaluate call to simulate 
     the complex environment we just fixed.
     """
@@ -27,7 +27,7 @@ async def test_list_chats_deduplication_and_classification():
     with patch("line_utils.is_logged_in", return_value=True), \
          patch.object(mock_page, "evaluate", AsyncMock(return_value=mock_evaluate_data)):
         
-        # We also need to mock the navigation parts of list_chats
+        # We also need to mock the navigation parts of find_chats
         mock_friend_btn = AsyncMock()
         mock_friend_btn.is_visible.return_value = True
         
@@ -44,7 +44,7 @@ async def test_list_chats_deduplication_and_classification():
         mock_page.locator.side_effect = locator_side_effect
         mock_page.keyboard.press = AsyncMock()
         
-        result = await line_utils.list_chats(mock_page, "娜比")
+        result = await line_utils.find_chats(mock_page, "娜比")
         
         # Verify the count is correct (no duplicates from sub-elements)
         assert len(result) == 3
@@ -68,7 +68,7 @@ async def test_select_chat_ambiguity_resolution():
     with patch("line_utils.is_logged_in", return_value=True), \
          patch("line_utils.CHATROOM_HEADER_SELECTOR", "header"), \
          patch("line_utils.MESSAGE_INPUT_SELECTOR", "input"), \
-         patch("line_utils.list_chats", return_value=mock_chats), \
+         patch("line_utils.find_chats", return_value=mock_chats), \
          patch("line_utils.open_chat", return_value={"status": "success"}) as mock_open:
         
         # Mock header to force search

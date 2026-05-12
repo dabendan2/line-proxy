@@ -13,7 +13,7 @@ async def test_select_chat_avoids_groups_with_same_name():
     mock_page.keyboard = MagicMock()
     mock_page.keyboard.press = AsyncMock()
 
-    # list_chats returns multiple, but select_chat should pick the exact match
+    # find_chats returns multiple, but select_chat should pick the exact match
     mock_chats = [
         {"name": "Wayne, Nada (4)", "type": "group", "chat_id": "c1"},
         {"name": "Wayne", "type": "private", "chat_id": "u1"}
@@ -21,7 +21,7 @@ async def test_select_chat_avoids_groups_with_same_name():
 
     with patch("line_utils.is_logged_in", return_value=True), \
          patch("line_utils.CHATROOM_HEADER_SELECTOR", "header"), \
-         patch("line_utils.list_chats", return_value=mock_chats), \
+         patch("line_utils.find_chats", return_value=mock_chats), \
          patch("line_utils.open_chat", return_value={"status": "success"}) as mock_open:
 
         # Mock header to return something else first to force search

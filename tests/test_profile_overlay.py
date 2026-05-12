@@ -19,9 +19,9 @@ async def test_select_chat_handles_profile_overlay():
         mock_loc = MagicMock(); mock_loc.first = mock_header
         mock_page.locator.return_value = mock_loc
 
-        # Mock list_chats and open_chat
+        # Mock find_chats and open_chat
         mock_chats = [{"name": "Nabi", "type": "private", "chat_id": "u1"}]
-        with patch("line_utils.list_chats", return_value=mock_chats), \
+        with patch("line_utils.find_chats", return_value=mock_chats), \
              patch("line_utils.open_chat", return_value={"status": "success"}) as mock_open:
             
             result = await line_utils.select_chat(mock_page, "Nabi")

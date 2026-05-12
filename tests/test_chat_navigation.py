@@ -10,14 +10,14 @@ if src_path not in sys.path:
     sys.path.insert(0, src_path)
 
 @pytest.mark.asyncio
-async def test_list_chats_success():
+async def test_find_chats_success():
     """Test successful chat listing."""
     mock_page = MagicMock()
     mock_chats = [{"name": "Junyu", "type": "private"}]
     
-    with patch("line_utils.list_chats", return_value=mock_chats):
+    with patch("line_utils.find_chats", return_value=mock_chats):
         import line_utils
-        result = await line_utils.list_chats(mock_page, "Junyu")
+        result = await line_utils.find_chats(mock_page, "Junyu")
         assert len(result) == 1
         assert result[0]["name"] == "Junyu"
         assert result[0]["type"] == "private"
@@ -101,11 +101,11 @@ async def test_select_chat_idempotency():
         
         import line_utils
         # We need to mock find_chat/open_chat to ensure they are NOT called
-        with patch("line_utils.list_chats") as mock_list, \
+        with patch("line_utils.find_chats") as mock_find, \
              patch("line_utils.open_chat") as mock_open:
             
             result = await line_utils.select_chat(mock_page, "Junyu")
             assert result["status"] == "success"
             assert "already selected" in result["info"]
-            mock_list.assert_not_called()
+            mock_find.assert_not_called()
             mock_open.assert_not_called()

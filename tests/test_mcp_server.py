@@ -25,7 +25,7 @@ async def test_prepare_line_instance_tool():
         assert data["port"] == 9222
 
 @pytest.mark.asyncio
-async def test_list_chats_tool():
+async def test_find_chats_tool():
     mock_page = AsyncMock()
     mock_page.screenshot = AsyncMock()
     mock_chats = [{"name": "Junyu", "type": "private"}, {"name": "Group A", "type": "group"}]
@@ -39,11 +39,11 @@ async def test_list_chats_tool():
         
         with patch("line_utils.get_line_page", return_value=mock_page), \
              patch("line_utils.is_logged_in", return_value=True), \
-             patch("line_utils.list_chats", return_value=mock_chats):
+             patch("line_utils.find_chats", return_value=mock_chats):
             
             import mcp_server
             # Reload to ensure new tools are registered if needed, though import is fine
-            result = await mcp_server.list_chats(keyword="test", port=9222)
+            result = await mcp_server.find_chats(keyword="test", port=9222)
             data = json.loads(result)
             assert data["status"] == "success"
             assert data["count"] == 2

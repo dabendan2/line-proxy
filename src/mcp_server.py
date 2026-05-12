@@ -61,7 +61,7 @@ async def prepare_line_instance(port: int = CDP_PORT, profile_name: str = DEFAUL
     return json.dumps(result)
 
 @mcp.tool()
-async def list_chats(keyword: str, port: int = CDP_PORT) -> str:
+async def find_chats(keyword: str, port: int = CDP_PORT) -> str:
     """Search for chats (private or group) by keyword and return a list with types."""
     async with async_playwright() as p:
         try:
@@ -74,8 +74,8 @@ async def list_chats(keyword: str, port: int = CDP_PORT) -> str:
             if not await line_utils.is_logged_in(page):
                 return json.dumps({"status": "error", "error": "Not logged in. Please call 'login_line' first."})
                 
-            matches = await line_utils.list_chats(page, keyword)
-            screenshot_path = SCREENSHOT_DIR / f"list_chats_{keyword}.png"
+            matches = await line_utils.find_chats(page, keyword)
+            screenshot_path = SCREENSHOT_DIR / f"find_chats_{keyword}.png"
             await page.screenshot(path=screenshot_path)
             
             return json.dumps({

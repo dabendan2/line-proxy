@@ -8,8 +8,8 @@ sys.path.append(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__f
 import line_utils
 
 @pytest.mark.asyncio
-async def test_list_chats_returns_chat_id():
-    """Verify that list_chats returns chat_id and deduplicates by it."""
+async def test_find_chats_returns_chat_id():
+    """Verify that find_chats returns chat_id and deduplicates by it."""
     mock_page = MagicMock()
     
     # Mock data with duplicates but same chat_id
@@ -28,7 +28,7 @@ async def test_list_chats_returns_chat_id():
         mock_page.locator.return_value.first.is_visible.return_value = True
         mock_page.keyboard.press = AsyncMock()
         
-        result = await line_utils.list_chats(mock_page, "Junyu")
+        result = await line_utils.find_chats(mock_page, "Junyu")
         
         # Ensure it's not an error dict
         assert isinstance(result, list), f"Expected list, got {result}"
@@ -57,7 +57,7 @@ async def test_open_chat_uses_chat_id():
     mock_header.inner_text.return_value = "Junyu"
     mock_input = AsyncMock()
     mock_input.is_visible.return_value = True
-
+    
     def side_effect(selector):
         m = MagicMock()
         # Default first to an AsyncMock that is not visible
@@ -98,7 +98,7 @@ async def test_select_chat_passes_chat_id():
     with patch("line_utils.is_logged_in", return_value=True), \
          patch("line_utils.CHATROOM_HEADER_SELECTOR", "header"), \
          patch("line_utils.MESSAGE_INPUT_SELECTOR", "input"), \
-         patch("line_utils.list_chats", return_value=mock_chats), \
+         patch("line_utils.find_chats", return_value=mock_chats), \
          patch("line_utils.open_chat", return_value={"status": "success"}) as mock_open:
         
         # Force search by making header mismatch
