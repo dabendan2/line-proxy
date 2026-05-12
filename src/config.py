@@ -2,7 +2,6 @@ import os
 from pathlib import Path
 
 # Paths
-BASE_DIR = Path("/home/ubuntu/line-proxy")
 DATA_DIR = Path.home() / ".line-proxy"
 LOG_DIR = DATA_DIR / "logs"
 SCREENSHOT_DIR = DATA_DIR

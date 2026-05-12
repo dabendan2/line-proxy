@@ -1,16 +1,14 @@
-import asyncio
 import os
+import sys
 from typing import List, Dict, Any, Optional
 import json
 import subprocess
-from pathlib import Path
 from dotenv import load_dotenv
 from mcp.server.fastmcp import FastMCP
 from browser_manager import BrowserManager
 from engine import LineProxyEngine
 import line_utils
 from playwright.async_api import async_playwright
-from lock_manager import PIDLock
 from config import CDP_PORT, DEFAULT_PROFILE, DEFAULT_MODEL, LOG_DIR, SCREENSHOT_DIR, \
     ENV_PATH, VIEWPORT_WIDTH, VIEWPORT_HEIGHT, SEARCH_INPUT_SELECTOR, SEARCH_TIMEOUT, OWNER_NAME
 

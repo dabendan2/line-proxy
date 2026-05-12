@@ -1,4 +1,3 @@
-import os
 import time
 from typing import List, Dict, Any
 from config import LOG_DIR, OWNER_NAME
