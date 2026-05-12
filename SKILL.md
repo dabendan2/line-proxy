@@ -45,6 +45,7 @@ CSS Class names in the Extension are randomized (e.g., `message-module__message_
 
 ### 3. Navigation Integrity
 - **Tab Switching**: The `select_chat` tool now automatically switches to the **'CHATS' tab** before searching. This prevents the "Friends" tab from opening a profile overlay instead of the chat window.
+- **Profile Overlay Handling**: If clicking a contact opens a **Profile Popup** (common when search results include non-active chats), `select_chat` now automatically detects and clicks the **'Chat'** button to enter the room.
 - **Pointer Events**: Uses `force=True` on clicks to bypass UI layers that intercept pointer events.
 
 ## Core Implementation Pattern: Blocking + Notifications

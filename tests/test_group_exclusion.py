@@ -45,7 +45,15 @@ async def test_select_chat_avoids_groups_with_same_name():
             l = MagicMock(); l.first = mock_header; return l
         if "Search" in selector or "搜尋" in selector:
             l = MagicMock(); l.first = mock_search; return l
-        return mock_list
+        # Default fallback for new selectors (like Profile Chat button)
+        l = MagicMock()
+        l.first = AsyncMock()
+        l.first.is_visible = AsyncMock(return_value=False)
+        # Ensure the list locator is still returned for the title selector
+        from config import CHATLIST_ITEM_TITLE_SELECTOR
+        if selector == CHATLIST_ITEM_TITLE_SELECTOR:
+            return mock_list
+        return l
 
     mock_page.locator = MagicMock(side_effect=side_effect)
 

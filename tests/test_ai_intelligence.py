@@ -80,12 +80,20 @@ async def test_select_chat_with_search_success():
     mock_search = AsyncMock()
     mock_search.click = AsyncMock()
     mock_search.fill = AsyncMock()
+
     def side_effect(selector, **kwargs):
         if "Header" in selector or "header" in selector:
             l = MagicMock(); l.first = mock_header; return l
         if "Search" in selector or "搜尋" in selector:
             l = MagicMock(); l.first = mock_search; return l
-        return mock_list
+        # Default fallback for new selectors
+        l = MagicMock()
+        l.first = AsyncMock()
+        l.first.is_visible = AsyncMock(return_value=False)
+        if "title" in selector:
+            return mock_list
+        return l
+
     mock_page.locator = MagicMock(side_effect=side_effect)
     with patch("line_utils.asyncio.sleep", AsyncMock()):
         result = await line_utils.select_chat(mock_page, "dabendan.test")
@@ -104,12 +112,20 @@ async def test_select_chat_not_found():
     mock_search = AsyncMock()
     mock_search.click = AsyncMock()
     mock_search.fill = AsyncMock()
+
     def side_effect(selector, **kwargs):
         if "Header" in selector or "header" in selector:
             l = MagicMock(); l.first = mock_header; return l
         if "Search" in selector or "搜尋" in selector:
             l = MagicMock(); l.first = mock_search; return l
-        return mock_list
+        # Default fallback
+        l = MagicMock()
+        l.first = AsyncMock()
+        l.first.is_visible = AsyncMock(return_value=False)
+        if "title" in selector:
+            return mock_list
+        return l
+
     mock_page.locator = MagicMock(side_effect=side_effect)
     with patch("line_utils.asyncio.sleep", AsyncMock()):
         result = await line_utils.select_chat(mock_page, "ghost")

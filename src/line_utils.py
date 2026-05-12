@@ -74,6 +74,22 @@ async def select_chat(page: Any, chat_name: str) -> Dict[str, Any]:
         if target_item:
             await target_item.click(force=True)
             await asyncio.sleep(2)
+            
+            # 4. Handle Profile Overlay (Robustness improvement)
+            # If a profile popup opens instead of the chat, click the 'Chat' button.
+            # Playwright locators pierce Shadow DOM by default.
+            chat_btn_selectors = [
+                'button:has-text("Chat")', 'button:has-text("聊天")',
+                '[role="button"]:has-text("Chat")', '[role="button"]:has-text("聊天")',
+                'span:has-text("Chat")', 'span:has-text("聊天")'
+            ]
+            for selector in chat_btn_selectors:
+                chat_btn = page.locator(selector).first
+                if await chat_btn.is_visible():
+                    await chat_btn.click()
+                    await asyncio.sleep(2)
+                    break
+
             return {"status": "success"}
         
         return {"status": "not_found", "error": f"Could not find chat containing '{chat_name}'"}
