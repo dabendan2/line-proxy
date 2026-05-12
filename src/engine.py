@@ -12,9 +12,10 @@ from config import DEFAULT_MODEL, OWNER_NAME, INTRO_PHRASE, HERMES_PREFIX, AGENT
     HERMES_API_URL
 
 class LineProxyEngine:
-    def __init__(self, page: Any, chat_name: str, task: str, model_name: str = DEFAULT_MODEL, api_key: Optional[str] = None) -> None:
+    def __init__(self, page: Any, chat_name: str, task: str, chat_id: Optional[str] = None, model_name: str = DEFAULT_MODEL, api_key: Optional[str] = None) -> None:
         self.page = page
         self.target_chat = chat_name
+        self.target_chat_id = chat_id
         self.task_description = task
         self.model_name = model_name
         self.history = HistoryManager(chat_name)
@@ -161,9 +162,9 @@ class LineProxyEngine:
 
     async def run(self) -> Optional[str]:
         start_time = time.time()
-        self.history.write_log(f"Proxy Engine started for {self.target_chat}")
+        self.history.write_log(f"Proxy Engine started for {self.target_chat} (ID: {self.target_chat_id})")
         await self.page.bring_to_front()
-        selection = await line_utils.select_chat(self.page, self.target_chat)
+        selection = await line_utils.select_chat(self.page, self.target_chat, self.target_chat_id)
         if selection.get("status") != "success":
             error_msg = f"Failed to select chat '{self.target_chat}': {selection.get('error', 'Unknown error')}"
             self.history.write_log(error_msg)

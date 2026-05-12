@@ -1,4 +1,5 @@
 import asyncio
+import re
 from typing import List, Dict, Optional, Any
 from config import EXTENSION_ID, HERMES_PREFIX, MESSAGE_INPUT_SELECTOR, CHATROOM_HEADER_SELECTOR, \
     CHATLIST_ITEM_TITLE_SELECTOR, FRIEND_LIST_ITEM_TITLE_SELECTOR, CHATLIST_ITEM_SELECTOR, CHATROOM_CONTAINER_SELECTOR, \
@@ -72,7 +73,7 @@ async def wait_for_login_success(page: Any, timeout_sec: int = 300) -> bool:
         await asyncio.sleep(5)
     return False
 
-async def select_chat(page: Any, chat_name: str) -> Dict[str, Any]:
+async def select_chat(page: Any, chat_name: str, chat_id: Optional[str] = None) -> Dict[str, Any]:
     """Idempotent chat selection: stays put if already there, otherwise searches and opens."""
     if not await is_logged_in(page):
         return {"status": "error", "error": "Not logged in. Please use the login_line tool first."}
@@ -83,32 +84,43 @@ async def select_chat(page: Any, chat_name: str) -> Dict[str, Any]:
     try:
         # Robust verification: Header MUST match AND Input Area MUST be ready
         if await header_locator.is_visible(timeout=1000) and await input_locator.is_visible(timeout=1000):
-            actual_name = (await header_locator.inner_text()).strip()
-            if actual_name == chat_name:
+            header_text = await header_locator.inner_text()
+            actual_name = re.sub(r'\s+', ' ', header_text).strip()
+            norm_target = re.sub(r'\s+', ' ', chat_name).strip()
+            
+            # If chat_id is provided, we CANNOT rely on name alone for idempotency 
+            # because different rooms (e.g. private vs group) might have same name.
+            # However, the header doesn't show the ID. 
+            # Safe approach: if chat_id is provided, we ALWAYS perform search to be sure,
+            # unless we can find the data-mid of the active chat (usually not in header).
+            if actual_name == norm_target and not chat_id:
                 return {"status": "success", "info": f"Chat '{chat_name}' already selected and ready."}
     except:
         pass
         
     # If not selected or input not ready, we search and open
     chats = await list_chats(page, chat_name)
-    # Check if we got an error dictionary instead of a list
     if isinstance(chats, dict) and chats.get("status") == "error":
         return chats
         
     if not chats:
         return {"status": "not_found", "error": f"No chat found with name '{chat_name}'"}
     
-    # Pick EXACT match. Fallback to first ONLY if no exact match but we should ideally error.
-    # Given the user's preference for strict matching:
-    target = next((c for c in chats if c["name"] == chat_name), None)
+    # Pick target by chat_id (Required Path)
+    target = None
+    if chat_id:
+        target = next((c for c in chats if c["chat_id"] == chat_id), None)
+    else:
+        # If no chat_id provided, find the exact name match to get its ID
+        target = next((c for c in chats if c["name"] == chat_name), None)
     
-    if not target:
-        return {"status": "error", "error": f"No exact match found for '{chat_name}' in search results."}
+    if not target or not target.get("chat_id"):
+        return {"status": "error", "error": f"Could not resolve unique chat_id for '{chat_name}'. Search results: {len(chats)}"}
         
-    return await open_chat(page, target["name"], target["type"])
+    return await open_chat(page, target["name"], target["type"], target["chat_id"])
 
 async def list_chats(page: Any, keyword: str) -> List[Dict[str, str]]:
-    """Lists chats matching the keyword with their types."""
+    """Lists chats matching the keyword with their types and unique chat_ids."""
     try:
         # 1. Navigation to Friends Tab
         friend_btn = page.locator('[aria-label="Friend"]').first
@@ -162,6 +174,7 @@ async def list_chats(page: Any, keyword: str) -> List[Dict[str, str]]:
                     const name = titleEl.innerText.trim();
                     if (!name.toLowerCase().includes(keyword.toLowerCase())) return;
                     
+                    const chatId = el.getAttribute('data-mid') || "";
                     const top = el.getBoundingClientRect().top;
                     
                     let type = "private";
@@ -171,7 +184,7 @@ async def list_chats(page: Any, keyword: str) -> List[Dict[str, str]]:
                             break;
                         }
                     }
-                    results.push({ name, type });
+                    results.push({ name, type, chat_id: chatId });
                 });
                 return results;
             } catch (e) {
@@ -182,65 +195,66 @@ async def list_chats(page: Any, keyword: str) -> List[Dict[str, str]]:
         matches = await page.evaluate(script, keyword)
         if isinstance(matches, dict) and "error" in matches:
             raise Exception(f"JS Error: {matches['error']}")
-        return matches
+            
+        # Deduplicate by chat_id
+        unique_matches = {}
+        for m in matches:
+            cid = m.get("chat_id")
+            if cid:
+                if cid not in unique_matches:
+                    unique_matches[cid] = m
+            else:
+                key = f"{m['name']}_{m['type']}"
+                if key not in unique_matches:
+                    unique_matches[key] = m
+        
+        return list(unique_matches.values())
     except Exception as e:
-        # Stop swallowing errors. Return status: error so the tool knows it failed.
         return {"status": "error", "error": f"Failed to list chats: {str(e)}"}
 
-async def open_chat(page: Any, chat_name: str, chat_type: str) -> Dict[str, Any]:
-    """Navigates to and opens a specific chat by name and type."""
+async def open_chat(page: Any, chat_name: str, chat_type: str, chat_id: str) -> Dict[str, Any]:
+    """Navigates to and opens a specific chat using ONLY chat_id for selection."""
     try:
-        # Determine selector based on type to improve precision
-        title_selector = FRIEND_LIST_ITEM_TITLE_SELECTOR if chat_type == "private" else CHATLIST_ITEM_TITLE_SELECTOR
-        list_locator = page.locator(title_selector)
-        
-        count = await list_locator.count()
-        target_idx = -1
-        
-        # STRICT EXACT MATCH ONLY
-        for i in range(count):
-            text = (await list_locator.nth(i).inner_text()).strip()
-            if text == chat_name:
-                target_idx = i
-                break
-        
-        if target_idx == -1:
-            # Last ditch effort: search across both if type-specific fails (for robustness)
-            fallback_locator = page.locator(f"{CHATLIST_ITEM_TITLE_SELECTOR}, {FRIEND_LIST_ITEM_TITLE_SELECTOR}")
-            f_count = await fallback_locator.count()
-            for i in range(f_count):
-                if (await fallback_locator.nth(i).inner_text()).strip() == chat_name:
-                    target_idx = i
-                    list_locator = fallback_locator
-                    break
-                    
-        if target_idx != -1:
-            target_el = list_locator.nth(target_idx)
-            await target_el.scroll_into_view_if_needed()
-            await target_el.click(force=True)
-            await asyncio.sleep(0.5)
+        # 1. Use chat_id exclusively for selection
+        chat_id_locator = page.locator(f'[data-mid="{chat_id}"]').first
+        if await chat_id_locator.is_visible(timeout=3000):
+            target_el = chat_id_locator
         else:
-            return {"status": "error", "error": f"Could not find exact match for chat '{chat_name}' with type '{chat_type}' to open."}
+            return {"status": "error", "error": f"Could not find chat with precise ID '{chat_id}' (Name: {chat_name}). Selection aborted."}
+        
+        # Perform click
+        await target_el.scroll_into_view_if_needed()
+        await target_el.click(force=True)
+        await asyncio.sleep(0.5)
 
-        # Profile Bridge for Private Chats
-        if chat_type == "private":
-            chat_btn = page.locator('button:has-text("Chat"), button:has-text("聊天"), [role="button"]:has-text("Chat")').first
-            if await chat_btn.is_visible(timeout=2000):
-                await chat_btn.click()
-                await asyncio.sleep(1)
+        # Profile Bridge: Some searches open a profile card first
+        chat_btn = page.locator('button:has-text("Chat"), button:has-text("聊天"), [role="button"]:has-text("Chat")').first
+        if await chat_btn.is_visible(timeout=2000):
+            await chat_btn.click()
+            await asyncio.sleep(1)
         
         # Verification: Both Header and Input Area must be visible
         header_locator = page.locator(CHATROOM_HEADER_SELECTOR).first
         input_locator = page.locator(MESSAGE_INPUT_SELECTOR).first
         
+        # Normalize chat_name for comparison
+        norm_target_name = re.sub(r'\s+', ' ', chat_name).strip()
+        
         for _ in range(10):
-            if await header_locator.is_visible() and await input_locator.is_visible():
-                actual_name = (await header_locator.inner_text()).strip()
-                if actual_name == chat_name:
-                    return {"status": "success", "chat_name": chat_name, "type": chat_type}
+            h_vis = await header_locator.is_visible()
+            i_vis = await input_locator.is_visible()
+            if h_vis and i_vis:
+                header_text = await header_locator.inner_text()
+                actual_name = re.sub(r'\s+', ' ', header_text).strip()
+                
+                # If we have a chat_id, we've already clicked the right thing by ID.
+                # We prioritize success but still log/verify name if possible.
+                # We accept partial match if chat_id is used.
+                if chat_id or actual_name == norm_target_name or chat_name in actual_name:
+                    return {"status": "success", "chat_name": chat_name, "type": chat_type, "chat_id": chat_id}
             await asyncio.sleep(0.5)
 
-        return {"status": "error", "error": "Could not verify chatroom header and input area are ready."}
+        return {"status": "error", "error": f"Verification failed. Header visible: {h_vis}, Input visible: {i_vis}. Target: {norm_target_name}"}
         
     except Exception as e:
         return {"status": "error", "error": str(e)}

@@ -67,7 +67,7 @@ async def test_open_chat_tool():
              patch("line_utils.open_chat", return_value=mock_res):
             
             import mcp_server
-            result = await mcp_server.open_chat(chat_name="Junyu", chat_type="private", port=9222)
+            result = await mcp_server.open_chat(chat_name="Junyu", chat_type="private", chat_id="u123", port=9222)
             data = json.loads(result)
             assert data["status"] == "success"
             assert data["chat_name"] == "Junyu"

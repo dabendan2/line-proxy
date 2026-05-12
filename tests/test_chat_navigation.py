@@ -35,14 +35,26 @@ async def test_open_chat_success():
     
     mock_input = AsyncMock()
     mock_input.is_visible.return_value = True
+
+    # Mock Chat button (Profile Bridge) - it should not be visible by default to skip it
+    mock_chat_btn = AsyncMock()
+    mock_chat_btn.is_visible.return_value = False
+
+    # Mock chat_id locator
+    mock_id_locator = AsyncMock()
+    mock_id_locator.is_visible.return_value = True
     
     # This is tricky because open_chat calls locator multiple times with different selectors
     def locator_side_effect(selector):
         m = MagicMock()
-        if "chatroomHeader" in selector:
+        if "data-mid" in selector:
+            m.first = mock_id_locator
+        elif "chatroomHeader" in selector:
             m.first = mock_header
         elif "message_input" in selector or "contenteditable" in selector:
             m.first = mock_input
+        elif "Chat" in selector or "聊天" in selector:
+            m.first = mock_chat_btn
         else:
             m.count = AsyncMock(return_value=1)
             m.nth.return_value.inner_text = AsyncMock(return_value="Junyu")
@@ -54,7 +66,7 @@ async def test_open_chat_success():
     
     import line_utils
     with patch("line_utils.asyncio.sleep", AsyncMock()):
-        result = await line_utils.open_chat(mock_page, "Junyu", "group") # group skips profile bridge
+        result = await line_utils.open_chat(mock_page, "Junyu", "group", chat_id="u123") # group skips profile bridge
         assert result["status"] == "success"
         assert result["chat_name"] == "Junyu"
 

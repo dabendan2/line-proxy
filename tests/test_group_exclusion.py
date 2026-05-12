@@ -15,15 +15,15 @@ async def test_select_chat_avoids_groups_with_same_name():
 
     # list_chats returns multiple, but select_chat should pick the exact match
     mock_chats = [
-        {"name": "Wayne, Nada (4)", "type": "group"},
-        {"name": "Wayne", "type": "private"}
+        {"name": "Wayne, Nada (4)", "type": "group", "chat_id": "c1"},
+        {"name": "Wayne", "type": "private", "chat_id": "u1"}
     ]
-    
+
     with patch("line_utils.is_logged_in", return_value=True), \
          patch("line_utils.CHATROOM_HEADER_SELECTOR", "header"), \
          patch("line_utils.list_chats", return_value=mock_chats), \
          patch("line_utils.open_chat", return_value={"status": "success"}) as mock_open:
-        
+
         # Mock header to return something else first to force search
         mock_header = AsyncMock()
         mock_header.is_visible.return_value = False
@@ -35,4 +35,4 @@ async def test_select_chat_avoids_groups_with_same_name():
 
         assert result["status"] == "success"
         # Verify open_chat was called with the exact match
-        mock_open.assert_called_once_with(mock_page, "Wayne", "private")
+        mock_open.assert_called_once_with(mock_page, "Wayne", "private", "u1")

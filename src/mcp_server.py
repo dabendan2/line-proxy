@@ -88,8 +88,8 @@ async def list_chats(keyword: str, port: int = CDP_PORT) -> str:
         except Exception as e: return f"Error: {str(e)}"
 
 @mcp.tool()
-async def open_chat(chat_name: str, chat_type: str, port: int = CDP_PORT) -> str:
-    """Opens a specific chat by name and type (private or group)."""
+async def open_chat(chat_name: str, chat_type: str, chat_id: str, port: int = CDP_PORT) -> str:
+    """Opens a specific chat by unique chat_id. Requires chat_id for precise matching."""
     async with async_playwright() as p:
         try:
             browser = await p.chromium.connect_over_cdp(f"http://localhost:{port}")
@@ -102,7 +102,7 @@ async def open_chat(chat_name: str, chat_type: str, port: int = CDP_PORT) -> str
             if not await line_utils.is_logged_in(page):
                 return json.dumps({"status": "error", "error": "Not logged in. Please call 'login_line' first."})
                 
-            result = await line_utils.open_chat(page, chat_name, chat_type)
+            result = await line_utils.open_chat(page, chat_name, chat_type, chat_id)
             screenshot_path = SCREENSHOT_DIR / f"open_chat_{chat_name}.png"
             await page.screenshot(path=screenshot_path)
             result["screenshot"] = str(screenshot_path)
@@ -110,7 +110,8 @@ async def open_chat(chat_name: str, chat_type: str, port: int = CDP_PORT) -> str
         except Exception as e: return f"Error: {str(e)}"
 
 @mcp.tool()
-async def send_line_message(chat_name: str, text: str, port: int = CDP_PORT) -> str:
+async def send_line_message(chat_name: str, text: str, chat_id: Optional[str] = None, port: int = CDP_PORT) -> str:
+    """Sends a message to a chat. Uses chat_id for precise matching if provided."""
     async with async_playwright() as p:
         try:
             browser = await p.chromium.connect_over_cdp(f"http://localhost:{port}")
@@ -118,14 +119,15 @@ async def send_line_message(chat_name: str, text: str, port: int = CDP_PORT) -> 
             page = await line_utils.get_line_page(context)
             if not page: return "Error: LINE extension page not found."
             await page.bring_to_front()
-            selection = await line_utils.select_chat(page, chat_name)
+            selection = await line_utils.select_chat(page, chat_name, chat_id)
             if selection["status"] not in ["success"]: return json.dumps(selection)
             await line_utils.send_message(page, text)
             return json.dumps({"status": "success", "chat": chat_name, "text": text})
         except Exception as e: return f"Error: {str(e)}"
 
 @mcp.tool()
-async def get_line_messages(chat_name: str, limit: int = 10, port: int = CDP_PORT) -> str:
+async def get_line_messages(chat_name: str, limit: int = 10, chat_id: Optional[str] = None, port: int = CDP_PORT) -> str:
+    """Retrieves message history from a chat. Uses chat_id for precise matching if provided."""
     async with async_playwright() as p:
         try:
             browser = await p.chromium.connect_over_cdp(f"http://localhost:{port}")
@@ -133,7 +135,7 @@ async def get_line_messages(chat_name: str, limit: int = 10, port: int = CDP_POR
             page = await line_utils.get_line_page(context)
             if not page: return "Error: LINE extension page not found."
             await page.bring_to_front()
-            selection = await line_utils.select_chat(page, chat_name)
+            selection = await line_utils.select_chat(page, chat_name, chat_id)
             if selection["status"] not in ["success"]: return json.dumps(selection)
             messages = await line_utils.extract_messages(page, owner_name=OWNER_NAME, chat_name=chat_name)
             recent = messages[-limit:] if limit > 0 else messages
@@ -141,12 +143,15 @@ async def get_line_messages(chat_name: str, limit: int = 10, port: int = CDP_POR
         except Exception as e: return f"Error: {str(e)}"
 
 @mcp.tool()
-async def run_task(chat_name: str, task: str, port: int = CDP_PORT, model: str = DEFAULT_MODEL) -> str:
+async def run_task(chat_name: str, task: str, chat_id: Optional[str] = None, port: int = CDP_PORT, model: str = DEFAULT_MODEL) -> str:
+    """Runs an AI-driven task for a specific chat. Uses chat_id for precise matching if provided."""
     api_key = os.environ.get("GOOGLE_API_KEY")
     if not api_key: return "Error: GOOGLE_API_KEY not found."
     venv_python = sys.executable
     run_script = os.path.join(os.path.dirname(__file__), "run_engine.py")
     cmd = [venv_python, run_script, "--chat_name", chat_name, "--task", task, "--port", str(port), "--model", model]
+    if chat_id:
+        cmd.extend(["--chat_id", chat_id])
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, check=False)
         return json.dumps({"status": "completed" if result.returncode == 0 else "failed", "exit_code": result.returncode, "stdout": result.stdout, "stderr": result.stderr})

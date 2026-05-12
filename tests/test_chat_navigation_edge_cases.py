@@ -60,9 +60,9 @@ async def test_select_chat_ambiguity_resolution():
     mock_page = MagicMock()
     
     mock_chats = [
-        {"name": "Wayne, 娜比 (4)", "type": "group"},
-        {"name": "娜比", "type": "group"}, # A group named exactly "娜比"
-        {"name": "娜比", "type": "private"} # The actual person
+        {"name": "Wayne, 娜比 (4)", "type": "group", "chat_id": "c1"},
+        {"name": "娜比", "type": "group", "chat_id": "c2"}, # A group named exactly "娜比"
+        {"name": "娜比", "type": "private", "chat_id": "u1"} # The actual person
     ]
     
     with patch("line_utils.is_logged_in", return_value=True), \
@@ -120,7 +120,9 @@ async def test_open_chat_private_triggers_bridge():
 
     def side_effect(selector):
         m = MagicMock()
-        if "Chat" in selector or "聊天" in selector:
+        if "data-mid" in selector:
+            m.first = mock_id_locator
+        elif "Chat" in selector or "聊天" in selector:
             m.first = mock_chat_btn
         elif "chatroomHeader" in selector:
             m.first = mock_header
@@ -135,7 +137,12 @@ async def test_open_chat_private_triggers_bridge():
     
     import line_utils
     with patch("line_utils.asyncio.sleep", AsyncMock()):
-        result = await line_utils.open_chat(mock_page, "娜比", "private")
+        # Mock ID locator
+        mock_id_locator = AsyncMock()
+        mock_id_locator.is_visible.return_value = True
+        mock_page.locator.return_value.first = mock_id_locator
+        
+        result = await line_utils.open_chat(mock_page, "娜比", "private", chat_id="u123")
         
         assert result["status"] == "success"
         # Verify the bridge button was clicked
@@ -159,12 +166,20 @@ async def test_open_chat_strict_exact_match():
     mock_input = AsyncMock()
     mock_input.is_visible.return_value = True
 
+    # Mock Chat button (Profile Bridge)
+    mock_chat_btn = AsyncMock()
+    mock_chat_btn.is_visible.return_value = False
+
     def side_effect(selector):
         m = MagicMock()
-        if "chatroomHeader" in selector:
+        if "data-mid" in selector:
+            m.first = mock_id_locator
+        elif "chatroomHeader" in selector:
             m.first = mock_header
         elif "message_input" in selector or "contenteditable" in selector:
             m.first = mock_input
+        elif "Chat" in selector or "聊天" in selector:
+            m.first = mock_chat_btn
         else:
             # For list items
             m.count = AsyncMock(return_value=2)
@@ -175,11 +190,17 @@ async def test_open_chat_strict_exact_match():
     mock_page.locator.side_effect = side_effect
     
     with patch("line_utils.asyncio.sleep", AsyncMock()):
+        # Mock ID locator
+        mock_id_locator = AsyncMock()
+        mock_id_locator.is_visible.return_value = True
+        mock_page.locator.return_value.first = mock_id_locator
+        
         # Should pick index 1 ("娜比")
-        result = await line_utils.open_chat(mock_page, "娜比", "group")
+        result = await line_utils.open_chat(mock_page, "娜比", "group", chat_id="u123")
         assert result["status"] == "success"
-        mock_exact.click.assert_called_once()
+        mock_id_locator.click.assert_called_once()
         mock_partial.click.assert_not_called()
+        mock_exact.click.assert_not_called()
 
     # 2. Test case: Only partial matches exist
     mock_partial_only = AsyncMock()
@@ -187,6 +208,8 @@ async def test_open_chat_strict_exact_match():
     
     def side_effect_failure(selector):
         m = MagicMock()
+        m.first = AsyncMock()
+        m.first.is_visible.return_value = False
         m.count = AsyncMock(return_value=1)
         m.nth.return_value = mock_partial_only
         return m
@@ -194,8 +217,8 @@ async def test_open_chat_strict_exact_match():
     mock_page.locator.side_effect = side_effect_failure
     
     with patch("line_utils.asyncio.sleep", AsyncMock()):
-        result = await line_utils.open_chat(mock_page, "娜比", "group")
-        # Should fail because "娜比" != "娜比討論群"
+        result = await line_utils.open_chat(mock_page, "娜比", "group", chat_id="u456")
+        # Should fail because ID u456 is not found in side_effect_failure (where is_visible is False)
         assert result["status"] == "error"
-        assert "Could not find exact match" in result["error"]
+        assert "Could not find chat with precise ID 'u456'" in result["error"]
         mock_partial_only.click.assert_not_called()

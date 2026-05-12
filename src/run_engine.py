@@ -11,6 +11,7 @@ from config import CDP_PORT, DEFAULT_MODEL, ENV_PATH
 async def main():
     parser = argparse.ArgumentParser(description="LINE Proxy Engine CLI")
     parser.add_argument("--chat_name", required=True, help="Name of the chat to manage")
+    parser.add_argument("--chat_id", help="Unique ID of the chat")
     parser.add_argument("--task", required=True, help="Task description for the AI")
     parser.add_argument("--port", type=int, default=CDP_PORT, help="CDP port")
     parser.add_argument("--model", default=DEFAULT_MODEL, help="Gemini model name")
@@ -46,6 +47,7 @@ async def main():
             engine = LineProxyEngine(
                 page=page,
                 chat_name=args.chat_name,
+                chat_id=args.chat_id,
                 task=refactored_task,
                 model_name=args.model,
                 api_key=api_key

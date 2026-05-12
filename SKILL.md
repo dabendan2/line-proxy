@@ -17,11 +17,17 @@ Ensure the following variables are set in `~/.hermes/.env`. See `.env.example` f
 - `LINE_DEFAULT_MODEL`: The Gemini model to use.
 - `GOOGLE_API_KEY`: Required for AI logic.
 
-**2. Long-Running Task Execution Pattern:**
-Always use the `terminal` tool in `background=true` mode:
+**2. Precise Chat Interaction Workflow (The "Ladder" Pattern):**
+To avoid sending messages to the wrong group or contact when names are similar, you MUST follow this sequence:
+1. **List**: Call `list_chats(keyword="NAME")` first.
+2. **Identify**: Extract the `chat_id` from the correct entry in the results.
+3. **Execute**: Pass both `chat_name` AND `chat_id` to subsequent tools (`open_chat`, `send_line_message`, etc.).
+
+**3. Long-Running Task Execution Pattern:**
+Always use the `terminal` tool in `background=true` mode. Pass the `chat_id` if available to ensure the engine locks onto the correct room:
 ```python
 terminal(
-    command="mcporter call line_proxy.run_task chat_name:\"NAME\" task:\"DESCRIPTION\" --timeout 3600000",
+    command="mcporter call line_proxy.run_task chat_name:\"NAME\" chat_id:\"ID\" task:\"DESCRIPTION\" --timeout 3600000",
     background=true,
     notify_on_complete=true
 )
@@ -70,15 +76,24 @@ terminal(
 - **`prepare_line_instance(port, profile_name)`**: Ensures Chromium is running with the correct profile.
 
 ### 2. Chat Navigation & Inspection
-- **`find_chat(chat_name)`**: Searches for and opens a chat window. Includes a screenshot.
-- **`get_line_messages(chat_name, limit)`**: 
+- **`list_chats(keyword)`**: 
+  - Searches for chats (private or group) matching the keyword.
+  - **Returns**: `[{"name": "...", "type": "...", "chat_id": "..."}]`.
+  - **Deduplication**: Results are automatically deduplicated by `chat_id`.
+- **`open_chat(chat_name, chat_type, chat_id)`**:
+  - Navigates to and opens a specific chat.
+  - **Precision**: Uses `chat_id` (the `data-mid` attribute) as the primary matching criterion to avoid ambiguity.
+- **`get_line_messages(chat_name, limit, chat_id)`**: 
   - **Returns**: `[{"sender": "...", "text": "...", "timestamp": "..."}]`.
+  - **Matching**: Uses `chat_id` if provided for precise chat selection.
   - **Sender Identification**: Automatically distinguishes between 'Owner', 'Hermes', and group members.
   - **Timestamp Inheritance**: Clustered messages inherit timestamps from the latest message in the cluster.
   - **Order**: Chronological (Oldest First).
 
 ### 3. Messaging
-- **`send_line_message(chat_name, text)`**: Sends a message with the `[Hermes]` prefix.
+- **`send_line_message(chat_name, text, chat_id)`**: 
+  - Sends a message with the `[Hermes]` prefix.
+  - Uses `chat_id` for precise selection if provided.
 
 ### 4. Session & Login
 - **`login_line()`**: 

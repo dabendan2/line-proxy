@@ -53,13 +53,13 @@ async def test_select_chat_with_search_success():
         mock_page.locator.return_value = mock_loc
 
         # Mock list_chats and open_chat
-        mock_chats = [{"name": "dabendan.test", "type": "private"}]
+        mock_chats = [{"name": "dabendan.test", "type": "private", "chat_id": "u123"}]
         with patch("line_utils.list_chats", return_value=mock_chats), \
              patch("line_utils.open_chat", return_value={"status": "success"}) as mock_open:
-            
+    
             result = await line_utils.select_chat(mock_page, "dabendan.test")
             assert result["status"] == "success"
-            mock_open.assert_called_once()
+            mock_open.assert_called_once_with(mock_page, "dabendan.test", "private", "u123")
 
 @pytest.mark.asyncio
 async def test_select_chat_not_found():
