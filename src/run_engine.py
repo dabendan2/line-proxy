@@ -2,7 +2,6 @@ import argparse
 import asyncio
 import os
 import sys
-from dotenv import load_dotenv
 from playwright.async_api import async_playwright
 import line_utils
 from engine import LineProxyEngine
@@ -16,10 +15,6 @@ async def main():
     parser.add_argument("--port", type=int, default=CDP_PORT, help="CDP port")
     parser.add_argument("--model", default=DEFAULT_MODEL, help="Gemini model name")
     args = parser.parse_args()
-
-    # Load .env
-    if ENV_PATH.exists():
-        load_dotenv(dotenv_path=ENV_PATH)
 
     api_key = os.environ.get("GOOGLE_API_KEY") or os.environ.get("GEMINI_API_KEY")
     if not api_key:

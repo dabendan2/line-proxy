@@ -11,9 +11,13 @@ This server provides direct tools to interact with the LINE Chrome Extension via
 
 ## ⚠️ MANDATORY EXECUTION PROTOCOL
 
-**NEVER** call `run_task` directly via the tool interface for long missions. It **WILL** time out after 60s and create an "orphan process" that locks the chat.
+**1. Environment Configuration:**
+Ensure the following variables are set in `~/.hermes/.env`. See `.env.example` for details:
+- `LINE_OWNER_NAME`: Your display name for AI attribution.
+- `LINE_DEFAULT_MODEL`: The Gemini model to use.
+- `GOOGLE_API_KEY`: Required for AI logic.
 
-**1. Long-Running Task Execution Pattern:**
+**2. Long-Running Task Execution Pattern:**
 Always use the `terminal` tool in `background=true` mode:
 ```python
 terminal(

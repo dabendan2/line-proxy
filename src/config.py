@@ -1,11 +1,16 @@
 import os
 from pathlib import Path
+from dotenv import load_dotenv
 
 # Paths
 DATA_DIR = Path.home() / ".line-proxy"
 LOG_DIR = DATA_DIR / "logs"
 SCREENSHOT_DIR = DATA_DIR
 ENV_PATH = Path.home() / ".hermes" / ".env"
+
+# Load environment variables
+if ENV_PATH.exists():
+    load_dotenv(dotenv_path=ENV_PATH)
 
 # Browser Configuration
 CDP_PORT = 9222
@@ -15,8 +20,8 @@ VIEWPORT_WIDTH = 1600
 VIEWPORT_HEIGHT = 1000
 
 # AI Configuration
-DEFAULT_MODEL = "gemini-3-flash-preview"
-OWNER_NAME = "俊羽"
+DEFAULT_MODEL = os.environ.get("LINE_DEFAULT_MODEL", "gemini-3-flash-preview")
+OWNER_NAME = os.environ.get("LINE_OWNER_NAME", "Owner")
 HERMES_PREFIX = "[Hermes]"
 INTRO_PHRASE = f"您好，我是 {OWNER_NAME} 的AI代理 Hermes。"
 

@@ -52,7 +52,6 @@ async def test_run_engine_cli_reports_timeout(capsys):
          patch("os.environ", {"GOOGLE_API_KEY": "test"}), \
          patch("run_engine.TaskRefactorer", create=True), \
          patch("run_engine.async_playwright"), \
-         patch("run_engine.load_dotenv"), \
          patch("run_engine.line_utils.get_line_page"), \
          patch("sys.argv", ["run_engine.py", "--chat_name", "test", "--task", "test"]):
         

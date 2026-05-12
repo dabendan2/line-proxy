@@ -3,7 +3,6 @@ import sys
 from typing import List, Dict, Any, Optional
 import json
 import subprocess
-from dotenv import load_dotenv
 from mcp.server.fastmcp import FastMCP
 from browser_manager import BrowserManager
 from engine import LineProxyEngine
@@ -11,9 +10,6 @@ import line_utils
 from playwright.async_api import async_playwright
 from config import CDP_PORT, DEFAULT_PROFILE, DEFAULT_MODEL, LOG_DIR, SCREENSHOT_DIR, \
     ENV_PATH, VIEWPORT_WIDTH, VIEWPORT_HEIGHT, SEARCH_INPUT_SELECTOR, SEARCH_TIMEOUT, OWNER_NAME
-
-if ENV_PATH.exists():
-    load_dotenv(dotenv_path=ENV_PATH)
 
 mcp = FastMCP("LINE Proxy Server")
 
