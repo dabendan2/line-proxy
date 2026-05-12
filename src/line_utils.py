@@ -112,84 +112,86 @@ async def extract_messages(page: Any, owner_name: str = "Owner", chat_name: str 
     - Chronological Order: The final list is reversed to ensure the Python Engine 
       receives Oldest-First order (msgs[-1] is the latest).
     """
-    # Force scroll to bottom
-    await page.evaluate(f'''() => {{
-        const chatroom = document.querySelector('{CHATROOM_CONTAINER_SELECTOR}');
-        if (chatroom) {{
-            chatroom.scrollTop = chatroom.scrollHeight;
-        }}
-    }}''')
-    await asyncio.sleep(1.5)
-    
-    script = f"""
-    () => {{
-        const results = [];
-        const prefix = "{HERMES_PREFIX}";
-        const ownerName = "{owner_name}";
-        const chatName = "{chat_name}";
-        
-        const chatroom = document.querySelector('{CHATROOM_CONTAINER_SELECTOR}');
-        if (!chatroom) return [];
-
-        const items = Array.from(chatroom.querySelectorAll('{MESSAGE_ITEM_SELECTOR}')).filter(el => {{
-            const style = window.getComputedStyle(el);
-            return style.display !== 'none' && style.visibility !== 'hidden' && el.offsetHeight > 0;
-        }});
-        
-        items.forEach(msg => {{
-            const contentEl = msg.querySelector('{MESSAGE_CONTENT_SELECTOR}');
-            if (!contentEl) return;
-            
-            const msgText = contentEl.innerText.trim();
-            const timeEl = msg.querySelector('{MESSAGE_TIME_SELECTOR}');
-            const timestamp = timeEl ? timeEl.innerText.trim() : "";
-            
-            // RELIABLE SELF-DETECTION
-            const direction = msg.getAttribute('data-direction');
-            const style = window.getComputedStyle(msg);
-            const isSelf = direction === 'reverse' || 
-                           style.justifyContent === 'flex-end' ||
-                           (msgText && msgText.startsWith(prefix));
-
-            // SENDER DETERMINATION
-            let sender = "";
-            if (isSelf) {{
-                sender = msgText.startsWith(prefix) ? "Hermes" : ownerName;
-            }} else {{
-                const nameEl = msg.querySelector('{SENDER_NAME_SELECTOR}');
-                sender = nameEl ? nameEl.innerText.trim() : chatName;
+    try:
+        # Force scroll to bottom
+        await page.evaluate(f'''() => {{
+            const chatroom = document.querySelector('{CHATROOM_CONTAINER_SELECTOR}');
+            if (chatroom) {{
+                chatroom.scrollTop = chatroom.scrollHeight;
             }}
-
-            results.push({{
-                sender: sender,
-                text: msgText.replace(prefix, "").trim(),
-                timestamp: timestamp
-            }});
-        }});
+        }}''')
+        await asyncio.sleep(1.5)
         
-        // Reverse to maintain Chronological Order (Oldest -> Newest)
-        const chronMessages = results.reverse();
+        script = f"""
+        () => {{
+            const results = [];
+            const prefix = "{HERMES_PREFIX}";
+            const ownerName = "{owner_name}";
+            const chatName = "{chat_name}";
+            
+            const chatroom = document.querySelector('{CHATROOM_CONTAINER_SELECTOR}');
+            if (!chatroom) return [];
 
-        // TIME INHERITANCE: Fill empty timestamps from the next message 
-        // (LINE only shows time on the last message of a cluster)
-        for (let i = chronMessages.length - 2; i >= 0; i--) {{
-            if (!chronMessages[i].timestamp && chronMessages[i+1].timestamp) {{
-                // Only inherit if the sender is the same (cluster logic)
-                if (chronMessages[i].sender === chronMessages[i+1].sender) {{
-                    chronMessages[i].timestamp = chronMessages[i+1].timestamp;
+            const items = Array.from(chatroom.querySelectorAll('{MESSAGE_ITEM_SELECTOR}')).filter(el => {{
+                const style = window.getComputedStyle(el);
+                return style.display !== 'none' && style.visibility !== 'hidden' && el.offsetHeight > 0;
+            }});
+            
+            items.forEach(msg => {{
+                const contentEl = msg.querySelector('{MESSAGE_CONTENT_SELECTOR}');
+                if (!contentEl) return;
+                
+                const msgText = contentEl.innerText.trim();
+                const timeEl = msg.querySelector('{MESSAGE_TIME_SELECTOR}');
+                const timestamp = timeEl ? timeEl.innerText.trim() : "";
+                
+                // RELIABLE SELF-DETECTION
+                const direction = msg.getAttribute('data-direction');
+                const style = window.getComputedStyle(msg);
+                const isSelf = direction === 'reverse' || 
+                               style.justifyContent === 'flex-end' ||
+                               (msgText && msgText.startsWith(prefix));
+
+                // SENDER DETERMINATION
+                let sender = "";
+                if (isSelf) {{
+                    sender = msgText.startsWith(prefix) ? "Hermes" : ownerName;
+                }} else {{
+                    const nameEl = msg.querySelector('{SENDER_NAME_SELECTOR}');
+                    sender = nameEl ? nameEl.innerText.trim() : chatName;
+                }}
+
+                results.push({{
+                    sender: sender,
+                    text: msgText.replace(prefix, "").trim(),
+                    timestamp: timestamp
+                }});
+            }});
+            
+            // Reverse to maintain Chronological Order (Oldest -> Newest)
+            const chronMessages = results.reverse();
+
+            // TIME INHERITANCE: Fill empty timestamps from the next message 
+            // (LINE only shows time on the last message of a cluster)
+            for (let i = chronMessages.length - 2; i >= 0; i--) {{
+                if (!chronMessages[i].timestamp && chronMessages[i+1].timestamp) {{
+                    // Only inherit if the sender is the same (cluster logic)
+                    if (chronMessages[i].sender === chronMessages[i+1].sender) {{
+                        chronMessages[i].timestamp = chronMessages[i+1].timestamp;
+                    }}
                 }}
             }}
+            
+            return chronMessages;
         }}
-        
-        return chronMessages;
-    }}
-    """
-    try:
+        """
         data = await page.evaluate(script)
         return data if data else []
     except Exception as e:
+        # Instead of just printing and returning [], re-raise or handle properly
+        # For the engine to know there's a problem, we should let it bubble or return None
         print(f"Extraction Error: {e}")
-        return []
+        raise e
 
 async def send_message(page: Any, text: str) -> None:
     message_area = page.locator(MESSAGE_INPUT_SELECTOR).first

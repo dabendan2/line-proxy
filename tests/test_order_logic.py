@@ -1,5 +1,5 @@
 import pytest
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 import sys
 import os
 
@@ -24,14 +24,13 @@ async def test_extraction_order_consistency():
         {"text": "I am fine (Newest)", "sender": "俊羽", "timestamp": "10:02 AM"}
     ]
     
-    # Mock the tool
-    line_utils.extract_messages = AsyncMock(return_value=mock_messages)
-    
-    msgs = await line_utils.extract_messages(mock_page)
-    
-    # Assertions for Chronological Order (Required by Engine)
-    assert msgs[0]["text"] == "Hello (Oldest)"
-    assert msgs[-1]["text"] == "I am fine (Newest)"
+    # Use patch to avoid dirtying the module
+    with patch("line_utils.extract_messages", new_callable=AsyncMock, return_value=mock_messages):
+        msgs = await line_utils.extract_messages(mock_page)
+        
+        # Assertions for Chronological Order (Required by Engine)
+        assert msgs[0]["text"] == "Hello (Oldest)"
+        assert msgs[-1]["text"] == "I am fine (Newest)"
 
 @pytest.mark.asyncio
 async def test_js_order_logic_fix():

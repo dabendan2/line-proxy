@@ -59,7 +59,7 @@ class BrowserManager:
         # 3. Create Dirs
         self.user_data_dir.mkdir(parents=True, exist_ok=True)
 
-        # 4. Launch via xvfb-run
+        # Launch via xvfb-run
         cmd = [
             "xvfb-run", "-a", "-s", "-screen 0 1600x1000x24",
             "chromium-browser",
@@ -74,9 +74,13 @@ class BrowserManager:
             f"chrome-extension://{self.ext_id}/index.html"
         ]
         
-        # Start in background
-        subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        
+        # Start in background and log output to a file instead of DEVNULL
+        log_file = Path.home() / ".line-proxy" / "logs" / "browser_startup.log"
+        log_file.parent.mkdir(parents=True, exist_ok=True)
+        with open(log_file, "a") as f:
+            f.write(f"\n--- Browser Launch at {time.ctime()} ---\n")
+            subprocess.Popen(cmd, stdout=f, stderr=f)
+
         # 5. Wait for readiness
         max_retries = 15
         for i in range(max_retries):

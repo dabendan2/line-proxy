@@ -58,8 +58,12 @@ async def main():
             engine.lock = lock
             
             final_report = await engine.run()
-            if final_report and "[RESTART_REQUIRED]" in final_report:
+            if final_report and ("[RESTART_REQUIRED]" in final_report or "Error" in final_report or "Failed" in final_report):
                 print(f"ERROR: {final_report}")
+                sys.exit(1)
+            elif final_report is None:
+                # Catch the silent failure case where run() returns None
+                print("ERROR: Engine session concluded without a final report (unexpected termination).")
                 sys.exit(1)
             else:
                 print(f"Success: Task for '{args.chat_name}' completed. Status: {final_report}")

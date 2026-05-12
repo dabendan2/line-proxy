@@ -163,7 +163,11 @@ class LineProxyEngine:
         start_time = time.time()
         self.history.write_log(f"Proxy Engine started for {self.target_chat}")
         await self.page.bring_to_front()
-        await line_utils.select_chat(self.page, self.target_chat)
+        selection = await line_utils.select_chat(self.page, self.target_chat)
+        if selection.get("status") != "success":
+            error_msg = f"Failed to select chat '{self.target_chat}': {selection.get('error', 'Unknown error')}"
+            self.history.write_log(error_msg)
+            return error_msg
         
         msgs = await line_utils.extract_messages(self.page)
         if not msgs: return
@@ -179,14 +183,20 @@ class LineProxyEngine:
                 break
             if self.state.get("exit_at") and time.time() >= self.state["exit_at"]:
                 break
-            msgs = await line_utils.extract_messages(self.page)
-            if msgs:
-                latest = msgs[-1]
-                is_hermes = latest.get("has_hermes_prefix", False) or latest.get("is_self_dom", False)
-                is_new = latest["text"].strip() != self.state.get("last_processed_msg", "").strip()
-                if not is_hermes and is_new:
-                    if self.state.get("exit_at"): self.state["exit_at"] = None
-                    await self.generate_and_send_reply(msgs)
+            try:
+                msgs = await line_utils.extract_messages(self.page)
+                if msgs:
+                    latest = msgs[-1]
+                    is_hermes = latest.get("has_hermes_prefix", False) or latest.get("is_self_dom", False)
+                    is_new = latest["text"].strip() != self.state.get("last_processed_msg", "").strip()
+                    if not is_hermes and is_new:
+                        if self.state.get("exit_at"): self.state["exit_at"] = None
+                        await self.generate_and_send_reply(msgs)
+            except Exception as e:
+                error_msg = f"Critical error in message polling: {e}"
+                self.history.write_log(error_msg)
+                self.state["final_report"] = error_msg
+                break
             await asyncio.sleep(POLL_INTERVAL)
 
         self.history.write_log("Session concluded.")
