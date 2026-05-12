@@ -44,6 +44,7 @@ CHATROOM_CONTAINER_SELECTOR = 'DIV.chatroom-module__chatroom__eVUaK, [class*="ch
 MESSAGE_ITEM_SELECTOR = 'DIV.message-module__message__7odk3, [class*="messageLayout-module__message"]'
 MESSAGE_CONTENT_SELECTOR = '[class*="content_inner"], [class*="textMessageContent-module__text"]'
 MESSAGE_TIME_SELECTOR = '[class*="time"], [class*="metaInfo-module__time"]'
+SENDER_NAME_SELECTOR = '[class*="username-module__username"], [class*="sender"]'
 
 # Ensure directories exist
 os.makedirs(LOG_DIR, exist_ok=True)

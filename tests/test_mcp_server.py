@@ -69,8 +69,8 @@ async def test_send_line_message_tool():
 async def test_get_line_messages_tool():
     mock_page = AsyncMock()
     mock_msgs = [
-        {"text": "msg1", "is_self_dom": False, "timestamp": "10:00"},
-        {"text": "msg2", "is_self_dom": True, "timestamp": "10:01"}
+        {"text": "msg1", "sender": "Wayne", "timestamp": "10:00"},
+        {"text": "msg2", "sender": "俊羽", "timestamp": "10:01"}
     ]
     
     with patch("mcp_server.async_playwright") as mock_p:
@@ -89,6 +89,7 @@ async def test_get_line_messages_tool():
             assert data["status"] == "success"
             assert data["count"] == 1
             assert data["messages"][0]["text"] == "msg2"
+            assert data["messages"][0]["sender"] == "俊羽"
 
 @pytest.mark.asyncio
 async def test_run_task_tool():

@@ -19,9 +19,9 @@ async def test_extraction_order_consistency():
     
     # Standard format returned by line_utils: Oldest First
     mock_messages = [
-        {"text": "Hello (Oldest)", "is_self": False, "timestamp": "10:00 AM"},
-        {"text": "How are you?", "is_self": False, "timestamp": "10:01 AM"},
-        {"text": "I am fine (Newest)", "is_self": False, "timestamp": "10:02 AM"}
+        {"text": "Hello (Oldest)", "sender": "Wayne", "timestamp": "10:00 AM"},
+        {"text": "How are you?", "sender": "Wayne", "timestamp": "10:01 AM"},
+        {"text": "I am fine (Newest)", "sender": "俊羽", "timestamp": "10:02 AM"}
     ]
     
     # Mock the tool

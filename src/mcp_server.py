@@ -12,7 +12,7 @@ import line_utils
 from playwright.async_api import async_playwright
 from lock_manager import PIDLock
 from config import CDP_PORT, DEFAULT_PROFILE, DEFAULT_MODEL, LOG_DIR, SCREENSHOT_DIR, \
-    ENV_PATH, VIEWPORT_WIDTH, VIEWPORT_HEIGHT, SEARCH_INPUT_SELECTOR, SEARCH_TIMEOUT
+    ENV_PATH, VIEWPORT_WIDTH, VIEWPORT_HEIGHT, SEARCH_INPUT_SELECTOR, SEARCH_TIMEOUT, OWNER_NAME
 
 # Load .env
 if ENV_PATH.exists():
@@ -125,7 +125,7 @@ async def send_line_message(chat_name: str, text: str, port: int = CDP_PORT) -> 
 async def get_line_messages(chat_name: str, limit: int = 10, port: int = CDP_PORT) -> str:
     """
     Retrieves the most recent N messages from the specified chat.
-    Returns a list of objects with text, sender (is_self), and timestamp.
+    Returns a list of objects with text, sender, and timestamp.
     """
     async with async_playwright() as p:
         try:
@@ -143,8 +143,8 @@ async def get_line_messages(chat_name: str, limit: int = 10, port: int = CDP_POR
             if selection["status"] not in ["success"]:
                 return json.dumps(selection)
 
-            # Extract messages
-            messages = await line_utils.extract_messages(page)
+            # Extract messages with sender logic
+            messages = await line_utils.extract_messages(page, owner_name=OWNER_NAME, chat_name=chat_name)
             recent = messages[-limit:] if limit > 0 else messages
             
             return json.dumps({
@@ -195,7 +195,6 @@ async def run_task(chat_name: str, task: str, port: int = CDP_PORT, model: str =
             "stderr": result.stderr
         })
     except Exception as e:
-        lock.release()
         return f"Error running task: {str(e)}"
 
 if __name__ == "__main__":

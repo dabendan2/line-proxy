@@ -2,7 +2,7 @@ import asyncio
 from typing import List, Dict, Optional, Any
 from config import EXTENSION_ID, HERMES_PREFIX, MESSAGE_INPUT_SELECTOR, CHATROOM_HEADER_SELECTOR, \
     CHATLIST_ITEM_TITLE_SELECTOR, CHATLIST_ITEM_SELECTOR, CHATROOM_CONTAINER_SELECTOR, \
-    MESSAGE_ITEM_SELECTOR, MESSAGE_CONTENT_SELECTOR, MESSAGE_TIME_SELECTOR
+    MESSAGE_ITEM_SELECTOR, MESSAGE_CONTENT_SELECTOR, MESSAGE_TIME_SELECTOR, SENDER_NAME_SELECTOR
 
 async def get_line_page(context: Any) -> Any:
     """Finds the active LINE Extension page."""
@@ -80,7 +80,7 @@ async def select_chat(page: Any, chat_name: str) -> Dict[str, Any]:
     except Exception as e:
         return {"status": "error", "error": str(e)}
 
-async def extract_messages(page: Any) -> List[Dict[str, Any]]:
+async def extract_messages(page: Any, owner_name: str = "Owner", chat_name: str = "Chat") -> List[Dict[str, Any]]:
     """
     Retrieves messages from the active chatroom.
     
@@ -89,6 +89,10 @@ async def extract_messages(page: Any) -> List[Dict[str, Any]]:
       messages at the TOP of the DOM tree. 
     - Self-Detection: Standard CSS classes are randomized. We rely on the 
       'data-direction=reverse' attribute and 'justifyContent' flex styles.
+    - Sender Logic: 
+        - If self + [Hermes] -> 'Hermes'
+        - If self -> owner_name
+        - If other -> Grab name from SENDER_NAME_SELECTOR or fallback to chat_name
     - Chronological Order: The final list is reversed to ensure the Python Engine 
       receives Oldest-First order (msgs[-1] is the latest).
     """
@@ -105,6 +109,8 @@ async def extract_messages(page: Any) -> List[Dict[str, Any]]:
     () => {{
         const results = [];
         const prefix = "{HERMES_PREFIX}";
+        const ownerName = "{owner_name}";
+        const chatName = "{chat_name}";
         
         const chatroom = document.querySelector('{CHATROOM_CONTAINER_SELECTOR}');
         if (!chatroom) return [];
@@ -122,17 +128,25 @@ async def extract_messages(page: Any) -> List[Dict[str, Any]]:
             const timeEl = msg.querySelector('{MESSAGE_TIME_SELECTOR}');
             const timestamp = timeEl ? timeEl.innerText.trim() : "";
             
-            // RELIABLE SELF-DETECTION: Check data-direction and flex alignment
+            // RELIABLE SELF-DETECTION
             const direction = msg.getAttribute('data-direction');
             const style = window.getComputedStyle(msg);
             const isSelf = direction === 'reverse' || 
                            style.justifyContent === 'flex-end' ||
                            (msgText && msgText.startsWith(prefix));
 
+            // SENDER DETERMINATION
+            let sender = "";
+            if (isSelf) {{
+                sender = msgText.startsWith(prefix) ? "Hermes" : ownerName;
+            }} else {{
+                const nameEl = msg.querySelector('{SENDER_NAME_SELECTOR}');
+                sender = nameEl ? nameEl.innerText.trim() : chatName;
+            }}
+
             results.push({{
+                sender: sender,
                 text: msgText.replace(prefix, "").trim(),
-                is_self_dom: !!isSelf,
-                has_hermes_prefix: !!(msgText && msgText.startsWith(prefix)),
                 timestamp: timestamp
             }});
         }});
