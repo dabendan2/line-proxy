@@ -1,9 +1,9 @@
 import pytest
 import asyncio
 import time
-import os
 import sys
-from unittest.mock import MagicMock, patch
+import os
+from unittest.mock import MagicMock, patch, AsyncMock
 
 # Add src to path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "src")))
@@ -11,38 +11,59 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "s
 from engine import LineProxyEngine
 
 @pytest.mark.asyncio
-async def test_engine_runtime_timeout():
-    # Mock dependencies
+async def test_engine_runtime_timeout_logging():
+    """
+    Verify that when RUNTIME_TIMEOUT is reached, 
+    the error is logged to history_manager and returned.
+    """
     mock_page = MagicMock()
-    async def _async_mock(): return None
-    mock_page.bring_to_front = _async_mock
+    mock_page.bring_to_front = AsyncMock()
     
-    # Mock line_utils functions
-    with patch("line_utils.select_chat", return_value={"status": "success"}), \
-         patch("line_utils.extract_messages", return_value=[{"text": "msg1", "is_self_dom": False}]), \
-         patch("line_utils.send_message", return_value=None), \
-         patch("history_manager.HistoryManager.rebuild_state", return_value={}), \
-         patch("history_manager.HistoryManager.get_full_context", return_value=[]), \
-         patch("history_manager.HistoryManager.write_log"), \
+    with patch("line_utils.select_chat", new_callable=AsyncMock, return_value={"status": "success"}), \
+         patch("line_utils.extract_messages", new_callable=AsyncMock, return_value=[{"text": "m", "is_self_dom": False}]), \
+         patch("history_manager.HistoryManager.write_log") as mock_log, \
          patch("google.genai.Client"), \
-         patch("engine.POLL_INTERVAL", 0.1), \
-         patch("engine.RUNTIME_TIMEOUT", 1): # Set timeout to 1 second for testing
+         patch("engine.POLL_INTERVAL", 0.01), \
+         patch("engine.RUNTIME_TIMEOUT", 0.1): 
         
         engine = LineProxyEngine(mock_page, "test_chat", "test_task", api_key="test_key")
+        engine.generate_and_send_reply = AsyncMock()
         
-        # Mock generate_and_send_reply to do nothing
-        async def _mock_reply(msgs): pass
-        engine.generate_and_send_reply = _mock_reply
+        report = await engine.run()
         
-        start = time.time()
-        await engine.run()
-        end = time.time()
+        # 1. Check if report is returned correctly
+        assert report == "[RESTART_REQUIRED] Runtime limit reached."
         
-        # Verify it exited around 1 second
-        assert 1 <= (end - start) < 3
-        assert "[RESTART_REQUIRED]" in engine.state["final_report"]
-        print(f"\nTest passed: Engine timed out gracefully in {end-start:.2f}s")
+        # 2. Check if it was logged
+        log_calls = [call[0][0] for call in mock_log.call_args_list]
+        assert any("[RESTART_REQUIRED]" in str(msg) for msg in log_calls)
+        assert any("Session concluded." in str(msg) for msg in log_calls)
 
-if __name__ == "__main__":
-    import pytest
-    pytest.main([__file__])
+@pytest.mark.asyncio
+async def test_run_engine_cli_reports_timeout(capsys):
+    """
+    Verify that run_engine.py reports the real status 
+    instead of hardcoded success on timeout.
+    """
+    from run_engine import main
+    
+    with patch("run_engine.LineProxyEngine") as mock_engine_class, \
+         patch("run_engine.PIDLock"), \
+         patch("os.environ", {"GOOGLE_API_KEY": "test"}), \
+         patch("run_engine.TaskRefactorer", create=True), \
+         patch("run_engine.async_playwright"), \
+         patch("run_engine.load_dotenv"), \
+         patch("run_engine.line_utils.get_line_page"), \
+         patch("sys.argv", ["run_engine.py", "--chat_name", "test", "--task", "test"]):
+        
+        mock_instance = mock_engine_class.return_value
+        mock_instance.run = AsyncMock(return_value="[RESTART_REQUIRED] Runtime limit reached.")
+        
+        with pytest.raises(SystemExit) as excinfo:
+            await main()
+        
+        assert excinfo.value.code == 1
+            
+    captured = capsys.readouterr()
+    assert "ERROR" in captured.out
+    assert "[RESTART_REQUIRED]" in captured.out

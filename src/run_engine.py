@@ -57,8 +57,12 @@ async def main():
             )
             engine.lock = lock
             
-            await engine.run()
-            print(f"Success: Task for '{args.chat_name}' completed.")
+            final_report = await engine.run()
+            if final_report and "[RESTART_REQUIRED]" in final_report:
+                print(f"ERROR: {final_report}")
+                sys.exit(1)
+            else:
+                print(f"Success: Task for '{args.chat_name}' completed. Status: {final_report}")
         except Exception as e:
             print(f"Error: {str(e)}")
             lock.release()

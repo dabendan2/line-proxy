@@ -173,7 +173,9 @@ class LineProxyEngine:
 
         while True:
             if time.time() - start_time > RUNTIME_TIMEOUT:
-                self.state["final_report"] = "[RESTART_REQUIRED] Runtime limit reached."
+                msg = "[RESTART_REQUIRED] Runtime limit reached."
+                self.state["final_report"] = msg
+                self.history.write_log(msg)
                 break
             if self.state.get("exit_at") and time.time() >= self.state["exit_at"]:
                 break
@@ -186,5 +188,6 @@ class LineProxyEngine:
                     if self.state.get("exit_at"): self.state["exit_at"] = None
                     await self.generate_and_send_reply(msgs)
             await asyncio.sleep(POLL_INTERVAL)
-        
+
+        self.history.write_log("Session concluded.")
         return self.state.get("final_report")
