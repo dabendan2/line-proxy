@@ -22,6 +22,8 @@ VIEWPORT_HEIGHT = 1000
 # AI Configuration
 DEFAULT_MODEL = os.environ.get("LINE_DEFAULT_MODEL", "gemini-3-flash-preview")
 OWNER_NAME = os.environ.get("LINE_OWNER_NAME", "Owner")
+LINE_EMAIL = os.environ.get("LINE_EMAIL")
+LINE_PASSWORD = os.environ.get("LINE_PASSWORD")
 HERMES_PREFIX = "[Hermes]"
 INTRO_PHRASE = f"您好，我是 {OWNER_NAME} 的AI代理 Hermes。"
 
@@ -41,6 +43,7 @@ SEARCH_INPUT_SELECTOR = "input[placeholder*='Search'], input[placeholder*='搜�
 MESSAGE_INPUT_SELECTOR = '.message_input, [contenteditable="true"], textarea'
 CHATROOM_HEADER_SELECTOR = '[class*="chatroomHeader-module__name"]'
 CHATLIST_ITEM_TITLE_SELECTOR = '[class*="chatlistItem-module__title"]'
+FRIEND_LIST_ITEM_TITLE_SELECTOR = '[class*="friendlistItem-module__name_box"]'
 CHATLIST_ITEM_SELECTOR = 'xpath=ancestor::div[contains(@class, "chatlist_item")] | ancestor::button'
 
 # Extraction Selectors - CRITICAL FIX BASED ON DOM SCAN

@@ -46,7 +46,8 @@ async def test_select_chat_handles_profile_overlay():
     mock_page.locator = MagicMock(side_effect=side_effect)
     mock_page.get_by_text = MagicMock(return_value=mock_title)
 
-    with patch("line_utils.asyncio.sleep", AsyncMock()):
+    with patch("line_utils.asyncio.sleep", AsyncMock()), \
+         patch("line_utils.is_logged_in", return_value=True):
         result = await line_utils.select_chat(mock_page, "Nabi")
         assert result["status"] == "success"
         mock_title.click.assert_called_once()

@@ -9,9 +9,50 @@ from engine import LineProxyEngine
 import line_utils
 from playwright.async_api import async_playwright
 from config import CDP_PORT, DEFAULT_PROFILE, DEFAULT_MODEL, LOG_DIR, SCREENSHOT_DIR, \
-    ENV_PATH, VIEWPORT_WIDTH, VIEWPORT_HEIGHT, SEARCH_INPUT_SELECTOR, SEARCH_TIMEOUT, OWNER_NAME
+    ENV_PATH, VIEWPORT_WIDTH, VIEWPORT_HEIGHT, SEARCH_INPUT_SELECTOR, SEARCH_TIMEOUT, OWNER_NAME, \
+    LINE_EMAIL, LINE_PASSWORD
 
 mcp = FastMCP("LINE Proxy Server")
+
+@mcp.tool()
+async def login_line(port: int = CDP_PORT) -> str:
+    """Performs automated login using credentials from .env and returns MFA code if needed."""
+    if not LINE_EMAIL or not LINE_PASSWORD:
+        return "Error: LINE_EMAIL or LINE_PASSWORD not found in environment."
+        
+    async with async_playwright() as p:
+        try:
+            browser = await p.chromium.connect_over_cdp(f"http://localhost:{port}")
+            context = browser.contexts[0]
+            page = await line_utils.get_line_page(context)
+            if not page: return "Error: LINE extension page not found."
+            
+            if await line_utils.is_logged_in(page):
+                return json.dumps({"status": "success", "message": "Already logged in."})
+            
+            login_result = await line_utils.perform_login(page, LINE_EMAIL, LINE_PASSWORD)
+            
+            if login_result["status"] == "mfa_needed":
+                print(f"MFA_CODE_FOUND:{login_result['code']}")
+                # Wait for up to 5 minutes for user to verify on phone
+                success = await line_utils.wait_for_login_success(page, timeout_sec=300)
+                if success:
+                    return json.dumps({"status": "success", "message": "Login successful after MFA."})
+                else:
+                    screenshot_path = SCREENSHOT_DIR / "login_timeout.png"
+                    await page.screenshot(path=screenshot_path)
+                    return json.dumps({"status": "error", "error": "Login timed out waiting for MFA.", "screenshot": str(screenshot_path)})
+            
+            elif login_result["status"] == "pending":
+                success = await line_utils.wait_for_login_success(page, timeout_sec=30)
+                if success:
+                    return json.dumps({"status": "success", "message": "Login successful."})
+                else:
+                    return json.dumps({"status": "error", "error": "Login triggered but could not verify success."})
+            
+            return json.dumps(login_result)
+        except Exception as e:
+            return f"Error: {str(e)}"
 
 @mcp.tool()
 async def prepare_line_instance(port: int = CDP_PORT, profile_name: str = DEFAULT_PROFILE) -> str:
@@ -20,8 +61,8 @@ async def prepare_line_instance(port: int = CDP_PORT, profile_name: str = DEFAUL
     return json.dumps(result)
 
 @mcp.tool()
-async def find_private_chat(chat_name: str, port: int = CDP_PORT) -> str:
-    """Strictly finds and opens a private chat window from the Friends list."""
+async def find_chat(chat_name: str, port: int = CDP_PORT) -> str:
+    """Finds and opens a chat window (Private or Group) by name."""
     async with async_playwright() as p:
         try:
             browser = await p.chromium.connect_over_cdp(f"http://localhost:{port}")
@@ -30,7 +71,11 @@ async def find_private_chat(chat_name: str, port: int = CDP_PORT) -> str:
             if not page: return "Error: LINE extension page not found."
             await page.bring_to_front()
             await page.set_viewport_size({"width": VIEWPORT_WIDTH, "height": VIEWPORT_HEIGHT})
-            result = await line_utils.find_private_chat(page, chat_name)
+            
+            if not await line_utils.is_logged_in(page):
+                return json.dumps({"status": "error", "error": "Not logged in. Please call 'login_line' first."})
+                
+            result = await line_utils.find_chat(page, chat_name)
             screenshot_path = SCREENSHOT_DIR / f"last_find_{chat_name}.png"
             await page.screenshot(path=screenshot_path)
             result["screenshot"] = str(screenshot_path)
@@ -72,7 +117,7 @@ async def get_line_messages(chat_name: str, limit: int = 10, port: int = CDP_POR
 async def run_task(chat_name: str, task: str, port: int = CDP_PORT, model: str = DEFAULT_MODEL) -> str:
     api_key = os.environ.get("GOOGLE_API_KEY")
     if not api_key: return "Error: GOOGLE_API_KEY not found."
-    venv_python = "/home/ubuntu/line-proxy/venv/bin/python3"
+    venv_python = sys.executable
     run_script = os.path.join(os.path.dirname(__file__), "run_engine.py")
     cmd = [venv_python, run_script, "--chat_name", chat_name, "--task", task, "--port", str(port), "--model", model]
     try:

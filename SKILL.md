@@ -80,10 +80,17 @@ terminal(
 ### 3. Messaging
 - **`send_line_message(chat_name, text)`**: Sends a message with the `[Hermes]` prefix.
 
-### 4. Interactive Tasks (The "Brain")
+### 4. Session & Login
+- **`login_line()`**: 
+  - Uses `LINE_EMAIL` and `LINE_PASSWORD` from `.env`.
+  - Returns `MFA_CODE_FOUND:XXXXXX` if a verification code is displayed.
+  - Automatically polls for 5 minutes for phone verification success.
+  - If not logged in, other tools will return an error guiding you to use this tool.
+
+### 5. Interactive Tasks (The "Brain")
 - **`run_task(chat_name, task)`**: Synchronous AI-driven task execution. 
   - **WARNING**: Do not call directly. See "MANDATORY EXECUTION PROTOCOL" above.
 
 ## Maintenance & Logs
 - **Logs**: `~/.line-proxy/logs/{chat_name}.log`
-- **Tests**: `/home/ubuntu/line-proxy/venv/bin/pytest /home/ubuntu/line-proxy/tests/test_order_logic.py`
+ - **Tests**: `pytest tests/test_order_logic.py` (Run within the venv)

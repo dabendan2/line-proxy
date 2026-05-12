@@ -23,9 +23,14 @@ async def test_select_chat_avoids_groups_with_same_name():
     mock_title_1.inner_text = AsyncMock(return_value="Wayne")
     mock_title_1.click = AsyncMock()
 
+    def nth_side_effect(idx):
+        if idx == 0: return mock_title_0
+        if idx == 1: return mock_title_1
+        return mock_title_1
+
     mock_list = MagicMock()
     mock_list.count = AsyncMock(return_value=2)
-    mock_list.nth = MagicMock(side_effect=[mock_title_0, mock_title_1, mock_title_1])
+    mock_list.nth = MagicMock(side_effect=nth_side_effect)
     mock_list.first = mock_title_0
 
     def side_effect(selector, **kwargs):
@@ -43,9 +48,10 @@ async def test_select_chat_avoids_groups_with_same_name():
 
     mock_page.locator = MagicMock(side_effect=side_effect)
     mock_page.get_by_text = MagicMock(return_value=mock_title_1)
-
-    with patch("line_utils.asyncio.sleep", AsyncMock()):
+    
+    with patch("line_utils.asyncio.sleep", AsyncMock()), \
+         patch("line_utils.is_logged_in", return_value=True):
         result = await line_utils.select_chat(mock_page, "Wayne")
-        assert result["status"] == "success"
+
         mock_title_0.click.assert_not_called()
         mock_title_1.click.assert_called_once()

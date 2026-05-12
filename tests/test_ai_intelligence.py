@@ -35,8 +35,9 @@ async def test_strict_title_matching_already_selected():
     mock_loc = MagicMock(); mock_loc.first = mock_header
     mock_page.locator = MagicMock(return_value=mock_loc)
     
-    result = await line_utils.select_chat(mock_page, "dabendan.test")
-    assert result["status"] == "success"
+    with patch("line_utils.is_logged_in", return_value=True):
+        result = await line_utils.select_chat(mock_page, "dabendan.test")
+        assert result["status"] == "success"
 
 @pytest.mark.asyncio
 async def test_select_chat_with_search_success():
@@ -75,7 +76,8 @@ async def test_select_chat_with_search_success():
     mock_page.locator = MagicMock(side_effect=side_effect)
     mock_page.get_by_text = MagicMock(return_value=mock_title)
     
-    with patch("line_utils.asyncio.sleep", AsyncMock()):
+    with patch("line_utils.asyncio.sleep", AsyncMock()), \
+         patch("line_utils.is_logged_in", return_value=True):
         result = await line_utils.select_chat(mock_page, "dabendan.test")
         assert result["status"] == "success"
 
@@ -97,7 +99,8 @@ async def test_select_chat_not_found():
     # Handle the Friend btn and Search input specifically in side_effect if needed, 
     # but for simple not_found, just making sure everything returns empty list is enough.
     
-    with patch("line_utils.asyncio.sleep", AsyncMock()):
+    with patch("line_utils.asyncio.sleep", AsyncMock()), \
+         patch("line_utils.is_logged_in", return_value=True):
         result = await line_utils.select_chat(mock_page, "ghost")
         assert result["status"] == "not_found"
 
