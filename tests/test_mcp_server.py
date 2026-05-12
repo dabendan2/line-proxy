@@ -25,10 +25,10 @@ async def test_prepare_line_instance_tool():
         assert data["port"] == 9222
 
 @pytest.mark.asyncio
-async def test_find_chat_tool():
+async def test_list_chats_tool():
     mock_page = AsyncMock()
-    mock_page.url = "chrome-extension://..."
     mock_page.screenshot = AsyncMock()
+    mock_chats = [{"name": "Junyu", "type": "private"}, {"name": "Group A", "type": "group"}]
     
     with patch("playwright.async_api.async_playwright") as mock_p:
         mock_browser = AsyncMock()
@@ -39,13 +39,38 @@ async def test_find_chat_tool():
         
         with patch("line_utils.get_line_page", return_value=mock_page), \
              patch("line_utils.is_logged_in", return_value=True), \
-             patch("line_utils.find_chat", return_value={"status": "success", "chat_name": "test_chat"}):
+             patch("line_utils.list_chats", return_value=mock_chats):
             
             import mcp_server
-            result = await mcp_server.find_chat(chat_name="test_chat", port=9222)
+            # Reload to ensure new tools are registered if needed, though import is fine
+            result = await mcp_server.list_chats(keyword="test", port=9222)
             data = json.loads(result)
             assert data["status"] == "success"
-            assert data["chat_name"] == "test_chat"
+            assert data["count"] == 2
+            assert data["chats"][0]["name"] == "Junyu"
+
+@pytest.mark.asyncio
+async def test_open_chat_tool():
+    mock_page = AsyncMock()
+    mock_page.screenshot = AsyncMock()
+    mock_res = {"status": "success", "chat_name": "Junyu", "type": "private"}
+    
+    with patch("playwright.async_api.async_playwright") as mock_p:
+        mock_browser = AsyncMock()
+        mock_context = MagicMock()
+        mock_context.pages = [mock_page]
+        mock_browser.contexts = [mock_context]
+        mock_p.return_value.__aenter__.return_value.chromium.connect_over_cdp.return_value = mock_browser
+        
+        with patch("line_utils.get_line_page", return_value=mock_page), \
+             patch("line_utils.is_logged_in", return_value=True), \
+             patch("line_utils.open_chat", return_value=mock_res):
+            
+            import mcp_server
+            result = await mcp_server.open_chat(chat_name="Junyu", chat_type="private", port=9222)
+            data = json.loads(result)
+            assert data["status"] == "success"
+            assert data["chat_name"] == "Junyu"
 
 @pytest.mark.asyncio
 async def test_send_line_message_tool():

@@ -42,67 +42,42 @@ async def test_strict_title_matching_already_selected():
 @pytest.mark.asyncio
 async def test_select_chat_with_search_success():
     mock_page = MagicMock()
-    mock_page.evaluate = AsyncMock(return_value=[])
-    mock_page.keyboard = MagicMock()
-    mock_page.keyboard.press = AsyncMock()
     
-    # Robust mock setup
-    mock_header = AsyncMock()
-    mock_header.is_visible = AsyncMock(side_effect=[False, True, True])
-    mock_header.inner_text = AsyncMock(return_value="dabendan.test")
-    
-    mock_title = AsyncMock()
-    mock_title.inner_text = AsyncMock(return_value="dabendan.test")
-    mock_title.click = AsyncMock()
-    
-    mock_list = MagicMock()
-    mock_list.count = AsyncMock(return_value=1)
-    mock_list.nth = MagicMock(return_value=mock_title)
-    mock_list.first = mock_title # for wait_for
-    
-    def side_effect(selector, **kwargs):
-        l = MagicMock()
-        if "Header" in selector or "header" in selector: l.first = mock_header; return l
-        if "Friend" in selector or "aria-label" in selector: 
-            f = AsyncMock(); f.is_visible = AsyncMock(return_value=True); l.first = f; return l
-        if "Search" in selector or "搜尋" in selector or "input" in selector:
-            s = AsyncMock(); s.is_visible = AsyncMock(return_value=True); l.first = s; return l
-        if "Chat" in selector or "聊天" in selector:
-            c = AsyncMock(); c.is_visible = AsyncMock(return_value=True); l.first = c; return l
-        if "message_input" in selector or "contenteditable" in selector:
-            i = AsyncMock(); i.is_visible = AsyncMock(return_value=True); l.first = i; return l
-        return mock_list
+    with patch("line_utils.is_logged_in", return_value=True), \
+         patch("line_utils.CHATROOM_HEADER_SELECTOR", "header"):
+        
+        # Mock header to force search
+        mock_header = AsyncMock()
+        mock_header.is_visible.return_value = False
+        mock_loc = MagicMock(); mock_loc.first = mock_header
+        mock_page.locator.return_value = mock_loc
 
-    mock_page.locator = MagicMock(side_effect=side_effect)
-    mock_page.get_by_text = MagicMock(return_value=mock_title)
-    
-    with patch("line_utils.asyncio.sleep", AsyncMock()), \
-         patch("line_utils.is_logged_in", return_value=True):
-        result = await line_utils.select_chat(mock_page, "dabendan.test")
-        assert result["status"] == "success"
+        # Mock list_chats and open_chat
+        mock_chats = [{"name": "dabendan.test", "type": "private"}]
+        with patch("line_utils.list_chats", return_value=mock_chats), \
+             patch("line_utils.open_chat", return_value={"status": "success"}) as mock_open:
+            
+            result = await line_utils.select_chat(mock_page, "dabendan.test")
+            assert result["status"] == "success"
+            mock_open.assert_called_once()
 
 @pytest.mark.asyncio
 async def test_select_chat_not_found():
     mock_page = MagicMock()
-    mock_page.evaluate = AsyncMock(return_value=[])
-    mock_page.keyboard = MagicMock()
-    mock_page.keyboard.press = AsyncMock()
     
-    mock_list = MagicMock()
-    mock_list.count = AsyncMock(return_value=0)
-    mock_list.first = AsyncMock()
-    mock_list.first.wait_for = AsyncMock()
+    with patch("line_utils.is_logged_in", return_value=True), \
+         patch("line_utils.CHATROOM_HEADER_SELECTOR", "header"):
+        
+        # Mock header to force search
+        mock_header = AsyncMock()
+        mock_header.is_visible.return_value = False
+        mock_loc = MagicMock(); mock_loc.first = mock_header
+        mock_page.locator.return_value = mock_loc
 
-    mock_page.locator = MagicMock(return_value=mock_list)
-    mock_page.get_by_text = MagicMock(return_value=mock_list)
-    
-    # Handle the Friend btn and Search input specifically in side_effect if needed, 
-    # but for simple not_found, just making sure everything returns empty list is enough.
-    
-    with patch("line_utils.asyncio.sleep", AsyncMock()), \
-         patch("line_utils.is_logged_in", return_value=True):
-        result = await line_utils.select_chat(mock_page, "ghost")
-        assert result["status"] == "not_found"
+        # Mock list_chats to return empty
+        with patch("line_utils.list_chats", return_value=[]):
+            result = await line_utils.select_chat(mock_page, "ghost")
+            assert result["status"] == "not_found"
 
 @pytest.mark.asyncio
 async def test_ai_trap_at_thank_you():

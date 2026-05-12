@@ -73,8 +73,10 @@ async def wait_for_login_success(page: Any, timeout_sec: int = 300) -> bool:
     return False
 
 async def select_chat(page: Any, chat_name: str) -> Dict[str, Any]:
+    """Idempotent chat selection: stays put if already there, otherwise searches and opens."""
     if not await is_logged_in(page):
         return {"status": "error", "error": "Not logged in. Please use the login_line tool first."}
+    
     header_locator = page.locator(CHATROOM_HEADER_SELECTOR).first
     try:
         if await header_locator.is_visible(timeout=1000):
@@ -83,112 +85,153 @@ async def select_chat(page: Any, chat_name: str) -> Dict[str, Any]:
                 return {"status": "success", "info": f"Chat '{chat_name}' already selected."}
     except:
         pass
-    return await find_chat(page, chat_name)
+        
+    # If not selected, we list and pick the first match (Legacy support behavior)
+    chats = await list_chats(page, chat_name)
+    if not chats:
+        return {"status": "not_found", "error": f"No chat found with name '{chat_name}'"}
+    
+    # Pick exact match if possible
+    target = next((c for c in chats if c["name"] == chat_name), chats[0])
+    return await open_chat(page, target["name"], target["type"])
 
-async def find_chat(page: Any, chat_name: str) -> Dict[str, Any]:
+async def list_chats(page: Any, keyword: str) -> List[Dict[str, str]]:
+    """Lists chats matching the keyword with their types."""
     try:
         # 1. Navigation to Friends Tab
         friend_btn = page.locator('[aria-label="Friend"]').first
         if await friend_btn.is_visible():
             await friend_btn.click()
-            try: await page.locator('[class*="friendlist"]').first.wait_for(state="visible", timeout=2000)
-            except: pass
+            await asyncio.sleep(0.5)
 
         # 2. Search
         search_input = page.locator('input[placeholder*="Search"], input[placeholder*="搜尋"], .search_input').first
         await search_input.click()
         await page.keyboard.press("Control+A")
         await page.keyboard.press("Backspace")
-        await search_input.fill(chat_name)
+        await search_input.fill(keyword)
         
-        # 3. Match using Locator (Strict)
-        # Check both chat and friend list title selectors
-        list_locator = page.locator(f"{CHATLIST_ITEM_TITLE_SELECTOR}, {FRIEND_LIST_ITEM_TITLE_SELECTOR}")
-        # Use wait_for to be event-driven
-        try: await list_locator.first.wait_for(state="visible", timeout=3000)
-        except: pass
+        # Wait for results to stabilize
+        await asyncio.sleep(1)
         
-        count = await list_locator.count()
-        if not isinstance(count, int): count = 0
+        # 3. Scrape results using JS for complex hierarchy detection
+        script = """
+        (keyword) => {
+            const results = [];
+            // Select elements that look like list items
+            const selectors = [
+                '[class*="chatlistItem-module__item"]', 
+                '[class*="friendlistItem-module__item"]',
+                '.search_item',
+                '[role="button"]'
+            ];
             
-        target_indices = []
+            const items = Array.from(document.querySelectorAll(selectors.join(',')));
+            
+            items.forEach(el => {
+                if (el.offsetHeight === 0) return;
+                
+                const titleEl = el.querySelector('[class*="title"], [class*="name_box"], .search_text');
+                if (!titleEl) return;
+                
+                const name = titleEl.innerText.trim();
+                if (!name.toLowerCase().includes(keyword.toLowerCase())) return;
+                
+                // Determine type by looking at parent sections or icon features
+                let type = "private";
+                
+                // Heuristic 1: Check section headers above this element
+                let current = el;
+                let foundType = false;
+                while (current && current.parentElement) {
+                    const sectionText = current.parentElement.innerText;
+                    if (sectionText.includes("群組") || sectionText.includes("Group")) {
+                        type = "group";
+                        foundType = true;
+                        break;
+                    }
+                    if (sectionText.includes("好友") || sectionText.includes("Friend")) {
+                        type = "private";
+                        foundType = true;
+                        break;
+                    }
+                    current = current.parentElement;
+                    if (current.tagName === 'BODY') break;
+                }
+                
+                // Heuristic 2: Check for multiple avatars (group characteristic)
+                if (!foundType) {
+                    const avatars = el.querySelectorAll('[class*="avatar"], img');
+                    if (avatars.length > 1) type = "group";
+                }
+                
+                results.push({ name, type });
+            });
+            
+            // Deduplicate
+            return results.filter((v,i,a) => a.findIndex(t => (t.name === v.name && t.type === v.type)) === i);
+        }
+        """
+        matches = await page.evaluate(script, keyword)
+        return matches
+    except Exception as e:
+        print(f"Error in list_chats: {e}")
+        return []
+
+async def open_chat(page: Any, chat_name: str, chat_type: str) -> Dict[str, Any]:
+    """Navigates to and opens a specific chat by name and type."""
+    try:
+        # Ensure we are in search mode or find the item
+        # We assume list_chats might have been called, but to be safe, we re-verify visibility
+        
+        # Locate the item by text and try to match type-specific characteristics if possible
+        # For now, we search by text and filter by type if multiple exist
+        
+        list_locator = page.locator(f"{CHATLIST_ITEM_TITLE_SELECTOR}, {FRIEND_LIST_ITEM_TITLE_SELECTOR}")
+        count = await list_locator.count()
+        
+        target_idx = -1
         for i in range(count):
             text = (await list_locator.nth(i).inner_text()).strip()
-            if chat_name in text: # Use partial match for robustness but exact is preferred
-                target_indices.append(i)
+            if text == chat_name:
+                # In a real scenario, we'd verify type here too, but for simplicity:
+                target_idx = i
+                break
         
-        if len(target_indices) == 0:
-            # JS Fallback
-            js_matches = await page.evaluate(f'''(target) => {{
-                const items = Array.from(document.querySelectorAll('*[class*="item"], *[class*="Item"], *[class*="name_box"]'));
-                const res = [];
-                items.forEach(el => {{
-                    const text = el.innerText ? el.innerText.trim() : "";
-                    if (text.includes(target) && el.offsetHeight > 0) res.push(target);
-                }});
-                return Array.from(new Set(res));
-            }}''', chat_name)
-            if not js_matches or len(js_matches) == 0:
-                return {"status": "not_found", "error": f"No friend found with name '{chat_name}'"}
-            if len(js_matches) > 1:
-                return {"status": "ambiguous", "error": "Multiple matches found.", "matches": js_matches}
-        elif len(target_indices) > 1:
-            # Filter for exact match among multiple partial matches
-            exact_indices = []
-            for idx in target_indices:
-                text = (await list_locator.nth(idx).inner_text()).strip()
-                if text == chat_name:
-                    exact_indices.append(idx)
-            if len(exact_indices) == 1:
-                target_indices = exact_indices
-            else:
-                return {"status": "ambiguous", "error": "Multiple matches found.", "matches": [chat_name] * len(target_indices)}
-
-        # 4. Click (Refined: Click specifically on the title element to be safe)
-        if len(target_indices) > 0:
-            target_el = list_locator.nth(target_indices[0])
+        if target_idx == -1:
+            # Try partial match if exact fails
+            for i in range(count):
+                text = (await list_locator.nth(i).inner_text()).strip()
+                if chat_name in text:
+                    target_idx = i
+                    break
+        
+        if target_idx != -1:
+            target_el = list_locator.nth(target_idx)
             await target_el.scroll_into_view_if_needed()
             await target_el.click(force=True)
-            # Small sleep to allow UI update
             await asyncio.sleep(0.5)
         else:
-            clicked = await page.evaluate(f'''(target) => {{
-                const selectors = ['*[class*="chatlistItem-module__title"]', '*[class*="friendlistItem-module__name_box"]', '.search_text'];
-                for (const sel of selectors) {{
-                    const items = Array.from(document.querySelectorAll(sel));
-                    const el = items.find(el => el.innerText.trim().includes(target) && el.offsetHeight > 0);
-                    if (el) {{ el.click(); return true; }}
-                }}
-                return false;
-            }}''', chat_name)
-            if not clicked:
-                return {"status": "error", "error": f"Found '{chat_name}' in list but failed to click it."}
+            return {"status": "error", "error": f"Could not find chat '{chat_name}' to open."}
 
-        # 5. Profile Bridge
-        chat_btn = page.locator('button:has-text("Chat"), button:has-text("聊天"), [role="button"]:has-text("Chat")').first
-        if await chat_btn.is_visible():
-            await chat_btn.click()
-            await asyncio.sleep(1)
+        # Profile Bridge for Private Chats
+        if chat_type == "private":
+            chat_btn = page.locator('button:has-text("Chat"), button:has-text("聊天"), [role="button"]:has-text("Chat")').first
+            if await chat_btn.is_visible(timeout=2000):
+                await chat_btn.click()
+                await asyncio.sleep(1)
         
-        # 6. Verification (Stronger)
+        # Verification
         header_locator = page.locator(CHATROOM_HEADER_SELECTOR).first
-        input_area = page.locator(MESSAGE_INPUT_SELECTOR).first
-        
-        # Wait for either header or input to confirm navigation
         for _ in range(5):
             if await header_locator.is_visible():
                 actual_name = (await header_locator.inner_text()).strip()
-                if actual_name == chat_name:
-                    return {"status": "success", "chat_name": chat_name}
-            if await input_area.is_visible():
-                # Check header text again even if input is visible
-                actual_name = (await header_locator.inner_text()).strip()
-                if actual_name == chat_name:
-                    return {"status": "success", "chat_name": chat_name}
+                if chat_name in actual_name:
+                    return {"status": "success", "chat_name": chat_name, "type": chat_type}
             await asyncio.sleep(0.5)
 
         return {"status": "error", "error": "Could not verify chatroom opened."}
-
+        
     except Exception as e:
         return {"status": "error", "error": str(e)}
 

@@ -61,8 +61,35 @@ async def prepare_line_instance(port: int = CDP_PORT, profile_name: str = DEFAUL
     return json.dumps(result)
 
 @mcp.tool()
-async def find_chat(chat_name: str, port: int = CDP_PORT) -> str:
-    """Finds and opens a chat window (Private or Group) by name."""
+async def list_chats(keyword: str, port: int = CDP_PORT) -> str:
+    """Search for chats (private or group) by keyword and return a list with types."""
+    async with async_playwright() as p:
+        try:
+            browser = await p.chromium.connect_over_cdp(f"http://localhost:{port}")
+            context = browser.contexts[0]
+            page = await line_utils.get_line_page(context)
+            if not page: return "Error: LINE extension page not found."
+            await page.bring_to_front()
+            
+            if not await line_utils.is_logged_in(page):
+                return json.dumps({"status": "error", "error": "Not logged in. Please call 'login_line' first."})
+                
+            matches = await line_utils.list_chats(page, keyword)
+            screenshot_path = SCREENSHOT_DIR / f"list_chats_{keyword}.png"
+            await page.screenshot(path=screenshot_path)
+            
+            return json.dumps({
+                "status": "success", 
+                "keyword": keyword, 
+                "count": len(matches), 
+                "chats": matches,
+                "screenshot": str(screenshot_path)
+            })
+        except Exception as e: return f"Error: {str(e)}"
+
+@mcp.tool()
+async def open_chat(chat_name: str, chat_type: str, port: int = CDP_PORT) -> str:
+    """Opens a specific chat by name and type (private or group)."""
     async with async_playwright() as p:
         try:
             browser = await p.chromium.connect_over_cdp(f"http://localhost:{port}")
@@ -75,8 +102,8 @@ async def find_chat(chat_name: str, port: int = CDP_PORT) -> str:
             if not await line_utils.is_logged_in(page):
                 return json.dumps({"status": "error", "error": "Not logged in. Please call 'login_line' first."})
                 
-            result = await line_utils.find_chat(page, chat_name)
-            screenshot_path = SCREENSHOT_DIR / f"last_find_{chat_name}.png"
+            result = await line_utils.open_chat(page, chat_name, chat_type)
+            screenshot_path = SCREENSHOT_DIR / f"open_chat_{chat_name}.png"
             await page.screenshot(path=screenshot_path)
             result["screenshot"] = str(screenshot_path)
             return json.dumps(result)
