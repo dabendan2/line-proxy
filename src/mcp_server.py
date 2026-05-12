@@ -70,8 +70,8 @@ async def get_line_messages(chat_name: str, limit: int = 10, port: int = CDP_POR
 
 @mcp.tool()
 async def run_task(chat_name: str, task: str, port: int = CDP_PORT, model: str = DEFAULT_MODEL) -> str:
-    api_key = os.environ.get("GOOGLE_API_KEY") or os.environ.get("GEMINI_API_KEY")
-    if not api_key: return "Error: GEMINI_API_KEY not found."
+    api_key = os.environ.get("GOOGLE_API_KEY")
+    if not api_key: return "Error: GOOGLE_API_KEY not found."
     venv_python = "/home/ubuntu/line-proxy/venv/bin/python3"
     run_script = os.path.join(os.path.dirname(__file__), "run_engine.py")
     cmd = [venv_python, run_script, "--chat_name", chat_name, "--task", task, "--port", str(port), "--model", model]

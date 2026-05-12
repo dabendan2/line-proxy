@@ -34,7 +34,7 @@ TOOL_WAIT = 60
 HERMES_API_URL = os.environ.get("HERMES_API_URL", "http://127.0.0.1:8642")
 
 # Runtime Timeout: 50 minutes (3000 seconds)
-RUNTIME_TIMEOUT = int(os.environ.get("LINE_ENGINE_RUNTIME_TIMEOUT", 3000))
+RUNTIME_TIMEOUT = 3000
 
 # DOM Selectors
 SEARCH_INPUT_SELECTOR = "input[placeholder*='Search'], input[placeholder*='搜尋'], .search_input, input[type='text']"

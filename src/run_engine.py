@@ -16,9 +16,9 @@ async def main():
     parser.add_argument("--model", default=DEFAULT_MODEL, help="Gemini model name")
     args = parser.parse_args()
 
-    api_key = os.environ.get("GOOGLE_API_KEY") or os.environ.get("GEMINI_API_KEY")
+    api_key = os.environ.get("GOOGLE_API_KEY")
     if not api_key:
-        print("Error: GEMINI_API_KEY not found in environment.")
+        print("Error: GOOGLE_API_KEY not found in environment.")
         sys.exit(1)
 
     # Refactor task using Stepped Communication logic
