@@ -7,7 +7,7 @@ import os
 # Ensure the src directory is in the path
 src_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src")
 if src_path not in sys.path:
-    sys.path.insert(0, sys.path)
+    sys.path.insert(0, src_path)
 
 @pytest.mark.asyncio
 async def test_list_chats_success():
@@ -27,21 +27,22 @@ async def test_open_chat_success():
     """Test successful chat opening."""
     mock_page = MagicMock()
     mock_page.locator = MagicMock()
-    mock_page.locator.return_value.count = AsyncMock(return_value=1)
-    mock_page.locator.return_value.nth.return_value.inner_text = AsyncMock(return_value="Junyu")
-    mock_page.locator.return_value.nth.return_value.scroll_into_view_if_needed = AsyncMock()
-    mock_page.locator.return_value.nth.return_value.click = AsyncMock()
     
     # Verification mocks
     mock_header = AsyncMock()
     mock_header.is_visible.return_value = True
     mock_header.inner_text.return_value = "Junyu"
     
+    mock_input = AsyncMock()
+    mock_input.is_visible.return_value = True
+    
     # This is tricky because open_chat calls locator multiple times with different selectors
     def locator_side_effect(selector):
         m = MagicMock()
         if "chatroomHeader" in selector:
             m.first = mock_header
+        elif "message_input" in selector or "contenteditable" in selector:
+            m.first = mock_input
         else:
             m.count = AsyncMock(return_value=1)
             m.nth.return_value.inner_text = AsyncMock(return_value="Junyu")
@@ -52,9 +53,10 @@ async def test_open_chat_success():
     mock_page.locator.side_effect = locator_side_effect
     
     import line_utils
-    result = await line_utils.open_chat(mock_page, "Junyu", "group") # group skips profile bridge
-    assert result["status"] == "success"
-    assert result["chat_name"] == "Junyu"
+    with patch("line_utils.asyncio.sleep", AsyncMock()):
+        result = await line_utils.open_chat(mock_page, "Junyu", "group") # group skips profile bridge
+        assert result["status"] == "success"
+        assert result["chat_name"] == "Junyu"
 
 @pytest.mark.asyncio
 async def test_select_chat_idempotency():
@@ -64,16 +66,26 @@ async def test_select_chat_idempotency():
     
     # Mock is_logged_in
     with patch("line_utils.is_logged_in", return_value=True), \
-         patch("line_utils.CHATROOM_HEADER_SELECTOR", "header"):
+         patch("line_utils.CHATROOM_HEADER_SELECTOR", "header"), \
+         patch("line_utils.MESSAGE_INPUT_SELECTOR", "input"):
         
         # Mock header text to match target
         mock_header = AsyncMock()
         mock_header.is_visible.return_value = True
         mock_header.inner_text.return_value = "Junyu"
         
-        mock_loc = MagicMock()
-        mock_loc.first = mock_header
-        mock_page.locator.return_value = mock_loc
+        mock_input = AsyncMock()
+        mock_input.is_visible.return_value = True
+        
+        def locator_side_effect(selector):
+            m = MagicMock()
+            if selector == "header":
+                m.first = mock_header
+            elif selector == "input":
+                m.first = mock_input
+            return m
+            
+        mock_page.locator.side_effect = locator_side_effect
         
         import line_utils
         # We need to mock find_chat/open_chat to ensure they are NOT called

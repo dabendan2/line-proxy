@@ -78,21 +78,33 @@ async def select_chat(page: Any, chat_name: str) -> Dict[str, Any]:
         return {"status": "error", "error": "Not logged in. Please use the login_line tool first."}
     
     header_locator = page.locator(CHATROOM_HEADER_SELECTOR).first
+    input_locator = page.locator(MESSAGE_INPUT_SELECTOR).first
+    
     try:
-        if await header_locator.is_visible(timeout=1000):
+        # Robust verification: Header MUST match AND Input Area MUST be ready
+        if await header_locator.is_visible(timeout=1000) and await input_locator.is_visible(timeout=1000):
             actual_name = (await header_locator.inner_text()).strip()
             if actual_name == chat_name:
-                return {"status": "success", "info": f"Chat '{chat_name}' already selected."}
+                return {"status": "success", "info": f"Chat '{chat_name}' already selected and ready."}
     except:
         pass
         
-    # If not selected, we list and pick the first match (Legacy support behavior)
+    # If not selected or input not ready, we search and open
     chats = await list_chats(page, chat_name)
+    # Check if we got an error dictionary instead of a list
+    if isinstance(chats, dict) and chats.get("status") == "error":
+        return chats
+        
     if not chats:
         return {"status": "not_found", "error": f"No chat found with name '{chat_name}'"}
     
-    # Pick exact match if possible
-    target = next((c for c in chats if c["name"] == chat_name), chats[0])
+    # Pick EXACT match. Fallback to first ONLY if no exact match but we should ideally error.
+    # Given the user's preference for strict matching:
+    target = next((c for c in chats if c["name"] == chat_name), None)
+    
+    if not target:
+        return {"status": "error", "error": f"No exact match found for '{chat_name}' in search results."}
+        
     return await open_chat(page, target["name"], target["type"])
 
 async def list_chats(page: Any, keyword: str) -> List[Dict[str, str]]:
@@ -100,7 +112,8 @@ async def list_chats(page: Any, keyword: str) -> List[Dict[str, str]]:
     try:
         # 1. Navigation to Friends Tab
         friend_btn = page.locator('[aria-label="Friend"]').first
-        if await friend_btn.is_visible():
+        is_friend_visible = await friend_btn.is_visible()
+        if is_friend_visible:
             await friend_btn.click()
             await asyncio.sleep(0.5)
 
@@ -112,107 +125,102 @@ async def list_chats(page: Any, keyword: str) -> List[Dict[str, str]]:
         await search_input.fill(keyword)
         
         # Wait for results to stabilize
-        await asyncio.sleep(1)
+        await asyncio.sleep(1.5) # Increased for stability
         
-        # 3. Scrape results using JS for complex hierarchy detection
+        # 3. Scrape results using Top-Down classification
         script = """
         (keyword) => {
-            const results = [];
-            // Select elements that look like list items
-            const selectors = [
-                '[class*="chatlistItem-module__item"]', 
-                '[class*="friendlistItem-module__item"]',
-                '.search_item',
-                '[role="button"]'
-            ];
-            
-            const items = Array.from(document.querySelectorAll(selectors.join(',')));
-            
-            items.forEach(el => {
-                if (el.offsetHeight === 0) return;
+            try {
+                // A. Identify headers
+                const headerEls = Array.from(document.querySelectorAll('*')).filter(el => {
+                    const t = el.innerText ? el.innerText.trim() : "";
+                    return (t === "群組" || t === "好友" || t === "Groups" || t === "Friends") && el.offsetHeight > 0;
+                });
                 
-                const titleEl = el.querySelector('[class*="title"], [class*="name_box"], .search_text');
-                if (!titleEl) return;
+                const sections = headerEls.map(el => {
+                    const t = el.innerText.trim();
+                    return {
+                        type: (t === "群組" || t === "Groups") ? "group" : "private",
+                        top: el.getBoundingClientRect().top
+                    };
+                }).sort((a, b) => a.top - b.top);
                 
-                const name = titleEl.innerText.trim();
-                if (!name.toLowerCase().includes(keyword.toLowerCase())) return;
+                // B. Get all potential items
+                const selectors = ['*[class*="item"]', '*[class*="Item"]', '.search_item'];
+                const allItems = Array.from(document.querySelectorAll(selectors.join(','))).filter(el => el.offsetHeight > 0);
                 
-                // Determine type by looking at parent sections or icon features
-                let type = "private";
+                // C. Filter out children
+                const rootItems = allItems.filter(el => {
+                    return !allItems.some(other => other !== el && other.contains(el));
+                });
                 
-                // Heuristic 1: Check section headers above this element
-                let current = el;
-                let foundType = false;
-                while (current && current.parentElement) {
-                    const sectionText = current.parentElement.innerText;
-                    if (sectionText.includes("群組") || sectionText.includes("Group")) {
-                        type = "group";
-                        foundType = true;
-                        break;
+                const results = [];
+                rootItems.forEach(el => {
+                    const titleEl = el.querySelector('[class*="title"], [class*="name_box"], .search_text, [class*="name"]');
+                    if (!titleEl) return;
+                    
+                    const name = titleEl.innerText.trim();
+                    if (!name.toLowerCase().includes(keyword.toLowerCase())) return;
+                    
+                    const top = el.getBoundingClientRect().top;
+                    
+                    let type = "private";
+                    for (let i = sections.length - 1; i >= 0; i--) {
+                        if (top > sections[i].top) {
+                            type = sections[i].type;
+                            break;
+                        }
                     }
-                    if (sectionText.includes("好友") || sectionText.includes("Friend")) {
-                        type = "private";
-                        foundType = true;
-                        break;
-                    }
-                    current = current.parentElement;
-                    if (current.tagName === 'BODY') break;
-                }
-                
-                // Heuristic 2: Check for multiple avatars (group characteristic)
-                if (!foundType) {
-                    const avatars = el.querySelectorAll('[class*="avatar"], img');
-                    if (avatars.length > 1) type = "group";
-                }
-                
-                results.push({ name, type });
-            });
-            
-            // Deduplicate
-            return results.filter((v,i,a) => a.findIndex(t => (t.name === v.name && t.type === v.type)) === i);
+                    results.push({ name, type });
+                });
+                return results;
+            } catch (e) {
+                return { "error": e.toString() };
+            }
         }
         """
         matches = await page.evaluate(script, keyword)
+        if isinstance(matches, dict) and "error" in matches:
+            raise Exception(f"JS Error: {matches['error']}")
         return matches
     except Exception as e:
-        print(f"Error in list_chats: {e}")
-        return []
+        # Stop swallowing errors. Return status: error so the tool knows it failed.
+        return {"status": "error", "error": f"Failed to list chats: {str(e)}"}
 
 async def open_chat(page: Any, chat_name: str, chat_type: str) -> Dict[str, Any]:
     """Navigates to and opens a specific chat by name and type."""
     try:
-        # Ensure we are in search mode or find the item
-        # We assume list_chats might have been called, but to be safe, we re-verify visibility
+        # Determine selector based on type to improve precision
+        title_selector = FRIEND_LIST_ITEM_TITLE_SELECTOR if chat_type == "private" else CHATLIST_ITEM_TITLE_SELECTOR
+        list_locator = page.locator(title_selector)
         
-        # Locate the item by text and try to match type-specific characteristics if possible
-        # For now, we search by text and filter by type if multiple exist
-        
-        list_locator = page.locator(f"{CHATLIST_ITEM_TITLE_SELECTOR}, {FRIEND_LIST_ITEM_TITLE_SELECTOR}")
         count = await list_locator.count()
-        
         target_idx = -1
+        
+        # STRICT EXACT MATCH ONLY
         for i in range(count):
             text = (await list_locator.nth(i).inner_text()).strip()
             if text == chat_name:
-                # In a real scenario, we'd verify type here too, but for simplicity:
                 target_idx = i
                 break
         
         if target_idx == -1:
-            # Try partial match if exact fails
-            for i in range(count):
-                text = (await list_locator.nth(i).inner_text()).strip()
-                if chat_name in text:
+            # Last ditch effort: search across both if type-specific fails (for robustness)
+            fallback_locator = page.locator(f"{CHATLIST_ITEM_TITLE_SELECTOR}, {FRIEND_LIST_ITEM_TITLE_SELECTOR}")
+            f_count = await fallback_locator.count()
+            for i in range(f_count):
+                if (await fallback_locator.nth(i).inner_text()).strip() == chat_name:
                     target_idx = i
+                    list_locator = fallback_locator
                     break
-        
+                    
         if target_idx != -1:
             target_el = list_locator.nth(target_idx)
             await target_el.scroll_into_view_if_needed()
             await target_el.click(force=True)
             await asyncio.sleep(0.5)
         else:
-            return {"status": "error", "error": f"Could not find chat '{chat_name}' to open."}
+            return {"status": "error", "error": f"Could not find exact match for chat '{chat_name}' with type '{chat_type}' to open."}
 
         # Profile Bridge for Private Chats
         if chat_type == "private":
@@ -221,16 +229,18 @@ async def open_chat(page: Any, chat_name: str, chat_type: str) -> Dict[str, Any]
                 await chat_btn.click()
                 await asyncio.sleep(1)
         
-        # Verification
+        # Verification: Both Header and Input Area must be visible
         header_locator = page.locator(CHATROOM_HEADER_SELECTOR).first
-        for _ in range(5):
-            if await header_locator.is_visible():
+        input_locator = page.locator(MESSAGE_INPUT_SELECTOR).first
+        
+        for _ in range(10):
+            if await header_locator.is_visible() and await input_locator.is_visible():
                 actual_name = (await header_locator.inner_text()).strip()
-                if chat_name in actual_name:
+                if actual_name == chat_name:
                     return {"status": "success", "chat_name": chat_name, "type": chat_type}
             await asyncio.sleep(0.5)
 
-        return {"status": "error", "error": "Could not verify chatroom opened."}
+        return {"status": "error", "error": "Could not verify chatroom header and input area are ready."}
         
     except Exception as e:
         return {"status": "error", "error": str(e)}
@@ -251,7 +261,7 @@ async def extract_messages(page: Any, owner_name: str = "Owner", chat_name: str 
             const ownerName = "{owner_name}";
             const chatName = "{chat_name}";
             const chatroom = document.querySelector('{CHATROOM_CONTAINER_SELECTOR}');
-            if (!chatroom) return [];
+            if (!chatroom) throw new Error('Chatroom container not found. Check if the chat is properly opened.');
             const items = Array.from(chatroom.querySelectorAll('{MESSAGE_ITEM_SELECTOR}')).filter(el => {{
                 const style = window.getComputedStyle(el);
                 return style.display !== 'none' && style.visibility !== 'hidden' && el.offsetHeight > 0;
