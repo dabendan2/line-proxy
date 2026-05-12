@@ -49,7 +49,7 @@ async def test_js_order_logic_fix():
     # LINE Extension lists newest messages FIRST in the DOM tree.
     # To maintain the Engine's expected chronological order (Oldest -> Newest),
     # the script MUST reverse the raw results.
-    assert "return results.reverse();" in content
+    assert "results.reverse()" in content
 
 @pytest.mark.asyncio
 async def test_self_detection_logic():
@@ -63,3 +63,17 @@ async def test_self_detection_logic():
         
     assert "msg.getAttribute('data-direction')" in content
     assert "direction === 'reverse'" in content
+
+@pytest.mark.asyncio
+async def test_timestamp_inheritance_logic():
+    """
+    Verify the JS string contains the logic to inherit timestamps 
+    for clustered messages from the same sender.
+    """
+    src_path = os.path.join(os.path.dirname(__file__), "..", "src", "line_utils.py")
+    with open(src_path, "r") as f:
+        content = f.read()
+        
+    assert "TIME INHERITANCE" in content
+    assert "chronMessages[i].timestamp = chronMessages[i+1].timestamp" in content
+    assert "chronMessages[i].sender === chronMessages[i+1].sender" in content

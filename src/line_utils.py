@@ -152,7 +152,20 @@ async def extract_messages(page: Any, owner_name: str = "Owner", chat_name: str 
         }});
         
         // Reverse to maintain Chronological Order (Oldest -> Newest)
-        return results.reverse();
+        const chronMessages = results.reverse();
+
+        // TIME INHERITANCE: Fill empty timestamps from the next message 
+        // (LINE only shows time on the last message of a cluster)
+        for (let i = chronMessages.length - 2; i >= 0; i--) {{
+            if (!chronMessages[i].timestamp && chronMessages[i+1].timestamp) {{
+                // Only inherit if the sender is the same (cluster logic)
+                if (chronMessages[i].sender === chronMessages[i+1].sender) {{
+                    chronMessages[i].timestamp = chronMessages[i+1].timestamp;
+                }}
+            }}
+        }}
+        
+        return chronMessages;
     }}
     """
     try:
