@@ -30,7 +30,7 @@ async def test_find_chats_tool():
     mock_page.screenshot = AsyncMock()
     mock_chats = [{"name": "Junyu", "type": "private"}, {"name": "Group A", "type": "group"}]
     
-    with patch("playwright.async_api.async_playwright") as mock_p:
+    with patch("mcp_server.async_playwright") as mock_p:
         mock_browser = AsyncMock()
         mock_context = MagicMock()
         mock_context.pages = [mock_page]
@@ -55,7 +55,7 @@ async def test_open_chat_tool():
     mock_page.screenshot = AsyncMock()
     mock_res = {"status": "success", "chat_name": "Junyu", "type": "private"}
     
-    with patch("playwright.async_api.async_playwright") as mock_p:
+    with patch("mcp_server.async_playwright") as mock_p:
         mock_browser = AsyncMock()
         mock_context = MagicMock()
         mock_context.pages = [mock_page]
@@ -73,27 +73,6 @@ async def test_open_chat_tool():
             assert data["chat_name"] == "Junyu"
 
 @pytest.mark.asyncio
-async def test_send_line_message_tool():
-    mock_page = AsyncMock()
-    
-    with patch("playwright.async_api.async_playwright") as mock_p:
-        mock_browser = AsyncMock()
-        mock_context = MagicMock()
-        mock_browser.contexts = [mock_context]
-        mock_p.return_value.__aenter__.return_value.chromium.connect_over_cdp.return_value = mock_browser
-        
-        with patch("line_utils.get_line_page", return_value=mock_page), \
-             patch("line_utils.select_chat", return_value={"status": "success"}), \
-             patch("line_utils.send_message", return_value=AsyncMock()):
-            
-            import mcp_server
-            result = await mcp_server.send_line_message(chat_name="test_chat", text="hello")
-            data = json.loads(result)
-            assert data["status"] == "success"
-            assert data["chat"] == "test_chat"
-            assert data["text"] == "hello"
-
-@pytest.mark.asyncio
 async def test_get_line_messages_tool():
     mock_page = AsyncMock()
     mock_msgs = [
@@ -101,7 +80,7 @@ async def test_get_line_messages_tool():
         {"text": "msg2", "sender": "俊羽", "timestamp": "10:01"}
     ]
     
-    with patch("playwright.async_api.async_playwright") as mock_p:
+    with patch("mcp_server.async_playwright") as mock_p:
         mock_browser = AsyncMock()
         mock_context = MagicMock()
         mock_browser.contexts = [mock_context]
@@ -121,11 +100,11 @@ async def test_get_line_messages_tool():
 
 @pytest.mark.asyncio
 async def test_run_task_tool():
-    with patch("subprocess.run") as mock_run:
+    with patch("subprocess.run") as mock_run, \
+         patch.dict(os.environ, {"GOOGLE_API_KEY": "fake_key"}):
         mock_run.return_value.returncode = 0
         mock_run.return_value.stdout = "task completed successfully"
         mock_run.return_value.stderr = ""
-        os.environ["GEMINI_API_KEY"] = "fake_key"
 
         import mcp_server
         result = await mcp_server.run_task(chat_name="test_chat", task="test_task")

@@ -109,21 +109,6 @@ async def open_chat(chat_name: str, chat_type: str, chat_id: str, port: int = CD
             return json.dumps(result)
         except Exception as e: return f"Error: {str(e)}"
 
-@mcp.tool()
-async def send_line_message(chat_name: str, text: str, chat_id: Optional[str] = None, port: int = CDP_PORT) -> str:
-    """Sends a message to a chat. Uses chat_id for precise matching if provided."""
-    async with async_playwright() as p:
-        try:
-            browser = await p.chromium.connect_over_cdp(f"http://localhost:{port}")
-            context = browser.contexts[0]
-            page = await line_utils.get_line_page(context)
-            if not page: return "Error: LINE extension page not found."
-            await page.bring_to_front()
-            selection = await line_utils.select_chat(page, chat_name, chat_id)
-            if selection["status"] not in ["success"]: return json.dumps(selection)
-            await line_utils.send_message(page, text)
-            return json.dumps({"status": "success", "chat": chat_name, "text": text})
-        except Exception as e: return f"Error: {str(e)}"
 
 @mcp.tool()
 async def get_line_messages(chat_name: str, limit: int = 10, chat_id: Optional[str] = None, port: int = CDP_PORT) -> str:
