@@ -44,7 +44,12 @@ def test_prepare_instance_already_running_with_extension(browser_manager):
     mock_response.status_code = 200
     mock_response.json.return_value = [{"url": "chrome-extension://ophjlpahpchlmihnnnihgmmeilfjmjjc/index.html"}]
     
-    with patch('httpx.get', return_value=mock_response):
+    mock_proc = MagicMock()
+    mock_proc.cmdline.return_value = ["chromium", "--user-data-dir=" + str(browser_manager.user_data_dir)]
+    
+    with patch('httpx.get', return_value=mock_response), \
+         patch.object(BrowserManager, 'is_port_in_use', return_value=1234), \
+         patch('psutil.Process', return_value=mock_proc):
         result = browser_manager.prepare_instance()
         assert result["status"] == "success"
         assert result["port"] == 9222
@@ -54,7 +59,12 @@ def test_prepare_instance_already_running_no_extension(browser_manager):
     mock_response.status_code = 200
     mock_response.json.return_value = [{"url": "about:blank"}]
     
-    with patch('httpx.get', return_value=mock_response):
+    mock_proc = MagicMock()
+    mock_proc.cmdline.return_value = ["chromium", "--user-data-dir=" + str(browser_manager.user_data_dir)]
+    
+    with patch('httpx.get', return_value=mock_response), \
+         patch.object(BrowserManager, 'is_port_in_use', return_value=1234), \
+         patch('psutil.Process', return_value=mock_proc):
         result = browser_manager.prepare_instance()
         assert result["status"] == "success"
         assert "navigation may be needed" in result["message"]

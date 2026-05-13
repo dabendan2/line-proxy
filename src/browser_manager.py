@@ -36,17 +36,30 @@ class BrowserManager:
         return None
 
     def prepare_instance(self) -> Dict[str, Any]:
-        # 1. Active CDP Check (Fast path)
+        # 1. Active CDP & Profile Assertion
         try:
             import httpx
             response = httpx.get(f"http://localhost:{self.port}/json", timeout=2)
             if response.status_code == 200:
-                pages = response.json()
-                # If we have a responsive CDP and the extension page is there, we're golden
-                if any(self.ext_id in p.get("url", "") for p in pages):
-                    return {"status": "success", "port": self.port, "cdp_url": f"http://localhost:{self.port}"}
-                # If no extension page, tools will handle navigation later
-                return {"status": "success", "message": "Browser up, extension page navigation may be needed.", "port": self.port}
+                # Port is active, but is it the CORRECT profile?
+                occupied_pid = self.is_port_in_use()
+                if occupied_pid:
+                    proc = psutil.Process(occupied_pid)
+                    cmdline = " ".join(proc.cmdline())
+                    if str(self.user_data_dir) in cmdline:
+                        # Correct profile is running
+                        pages = response.json()
+                        if any(self.ext_id in p.get("url", "") for p in pages):
+                            return {"status": "success", "port": self.port, "cdp_url": f"http://localhost:{self.port}"}
+                        return {"status": "success", "message": "Correct browser instance up, extension page navigation may be needed.", "port": self.port}
+                    else:
+                        # WRONG PROFILE! We must kill it to resolve the port collision
+                        print(f"Port {self.port} occupied by WRONG profile. Terminating PID {occupied_pid}...")
+                        proc.terminate()
+                        proc.wait(timeout=5)
+                else:
+                    # Port is active but PID not found via psutil (rare)? Fall through to full cleanup
+                    pass
         except Exception:
             pass
 

@@ -10,16 +10,27 @@ async def get_line_page(context: Any) -> Any:
     ext_url = f"chrome-extension://{EXTENSION_ID}/index.html"
     target_page = None
     
-    # 1. First pass: Find our target
+    # Wait for context to sync pages
+    for _ in range(10):
+        if context.pages:
+            break
+        await asyncio.sleep(0.2)
+    
+    # 1. First pass: Find the BEST target (one that is already logged in/on a functional route)
     for page in context.pages:
         if EXTENSION_ID in page.url:
-            target_page = page
-            if "chrome-error" in page.url:
-                await page.goto(ext_url)
-                await asyncio.sleep(2)
-            break
+            if any(route in page.url for route in ["#/friends", "#/chats", "#/timeline"]):
+                target_page = page
+                break
     
-    # 2. If not found, repurpose a blank/error page
+    # 2. Second pass: Find any extension page if no functional route found
+    if not target_page:
+        for page in context.pages:
+            if EXTENSION_ID in page.url:
+                target_page = page
+                break
+    
+    # 3. Third pass: Repurpose blank/error pages
     if not target_page:
         for page in context.pages:
             if "chrome-error" in page.url or "about:blank" in page.url:
@@ -28,37 +39,53 @@ async def get_line_page(context: Any) -> Any:
                 target_page = page
                 break
                 
-    # 3. Create new if still not found
+    # 4. Create new if still not found
     if not target_page:
         try:
             target_page = await context.new_page()
-            await page.goto(ext_url)
+            await target_page.goto(ext_url)
             await asyncio.sleep(2)
         except:
             return None
             
-    # 4. SINGLETON ENFORCEMENT: Close all OTHER regular pages
-    # We keep service workers and background pages (handled by Playwright context internally)
-    # but close other UI tabs to keep the environment clean.
-    for page in context.pages:
-        if page != target_page and not any(ext in page.url for ext in ["devtools", "background"]):
+    # 5. SINGLETON ENFORCEMENT
+    if target_page:
+        # Don't close background pages or internal extension pages that might be needed
+        for page in context.pages:
             try:
-                await page.close()
+                if page != target_page and not any(ext in page.url for ext in ["devtools", "background", "service-worker"]):
+                    # If it's another LINE UI page, close it to keep focus
+                    if EXTENSION_ID in page.url:
+                        await page.close()
             except:
                 pass
                 
     return target_page
 
-async def is_logged_in(page: Any, timeout_ms: int = 2000) -> bool:
-    """Checks if the user is currently logged into the LINE extension using event-driven waiting."""
+async def is_logged_in(page: Any, timeout_ms: int = 3000) -> bool:
+    """Checks if the user is currently logged into the LINE extension with robust fallbacks."""
     try:
-        # Define a combined locator for either the Friend or Chat button
-        # This is event-driven: it resolves as soon as either element appears.
-        login_indicator = page.locator('[aria-label="Friend"]').or_(page.locator('[aria-label="Chat"]'))
+        # 1. Force get real URL from window context to avoid Playwright property lag
+        real_url = await page.evaluate("window.location.href")
         
-        await login_indicator.first.wait_for(state="visible", timeout=timeout_ms)
-        return True
-    except:
+        # 2. Wait a bit if we are on the root or loading page
+        if real_url.endswith("#/") or "index.html" not in real_url:
+            await asyncio.sleep(1.0)
+            real_url = await page.evaluate("window.location.href")
+            
+        # 3. Permissive check: if indicators exist, we are logged in regardless of URL
+        indicators = page.locator('[aria-label="Friend"], [aria-label="Chat"], .nav_item, [class*="nav"]')
+        count = await indicators.count()
+        
+        if count > 0:
+            return True
+            
+        # 4. Fallback to URL check
+        if "index.html" in real_url and "#/login" not in real_url and not real_url.endswith("#/"):
+            return True
+            
+        return False
+    except Exception as e:
         return False
 
 async def perform_login(page: Any, email: str, password: str) -> Dict[str, Any]:
@@ -197,7 +224,7 @@ async def find_chats(page: Any, keyword: str) -> List[Dict[str, str]]:
                     const items = document.querySelectorAll('[class*="title"], [class*="name"]');
                     const text = Array.from(items).map(i => i.innerText).join(' ');
                     const bodyText = document.body.innerText;
-                    return text.includes(kw) || bodyText.includes('No results') || bodyText.includes('查無結果') || bodyText.includes('沒有符合條件');
+                    return text.includes(kw) || bodyText.includes('No results') || bodyText.includes('查裝結果') || bodyText.includes('沒有符合條件');
                 }""", 
                 keyword,
                 timeout=3000
@@ -330,7 +357,7 @@ async def open_chat(page: Any, chat_name: str, chat_type: str, chat_id: str) -> 
         return {"status": "error", "error": str(e)}
 
 async def extract_messages(page: Any, owner_name: str = "Owner", chat_name: str = "Chat") -> List[Dict[str, Any]]:
-    # TIME INHERITANCE
+    # TIME INHERITANCE & DATE TRACKING
     try:
         chatroom = CHATROOM_CONTAINER_SELECTOR
         await page.evaluate(f'''(sel) => {{
@@ -338,7 +365,6 @@ async def extract_messages(page: Any, owner_name: str = "Owner", chat_name: str 
             if (el) el.scrollTop = el.scrollHeight;
         }}''', chatroom)
         
-        # Use json.dumps to safely inject strings into the JS template
         script = f"""
         () => {{
             const results = [];
@@ -346,26 +372,59 @@ async def extract_messages(page: Any, owner_name: str = "Owner", chat_name: str 
             const ownerName = {json.dumps(owner_name)};
             const chatName = {json.dumps(chat_name)};
             const chatroom = document.querySelector({json.dumps(CHATROOM_CONTAINER_SELECTOR)});
-            if (!chatroom) throw new Error('Chatroom container not found. Check if the chat is properly opened.');
-            const items = Array.from(chatroom.querySelectorAll({json.dumps(MESSAGE_ITEM_SELECTOR)})).filter(el => {{
+            if (!chatroom) throw new Error('Chatroom container not found.');
+            
+            // Get all elements in order: messages AND date dividers
+            const items = Array.from(chatroom.querySelectorAll({json.dumps(MESSAGE_ITEM_SELECTOR)} + ', [class*="messageDate-module__date__"]')).filter(el => {{
                 const style = window.getComputedStyle(el);
                 return style.display !== 'none' && style.visibility !== 'hidden' && el.offsetHeight > 0;
             }});
-            items.forEach(msg => {{
-                const contentEl = msg.querySelector({json.dumps(MESSAGE_CONTENT_SELECTOR)});
+            
+            let currentDate = "";
+            items.forEach(el => {{
+                // Check if it's a date divider
+                if (el.className.includes('messageDate-module__date__')) {{
+                    currentDate = el.innerText.trim();
+                    return;
+                }}
+                
+                // It's a message
+                const contentEl = el.querySelector({json.dumps(MESSAGE_CONTENT_SELECTOR)});
                 if (!contentEl) return;
-                const msgText = contentEl.innerText.trim();
-                const timeEl = msg.querySelector({json.dumps(MESSAGE_TIME_SELECTOR)});
+                
+                // CLONE AND CLEAN: Remove time and status labels to avoid text leakage
+                const cleanContent = contentEl.cloneNode(true);
+                const toRemove = cleanContent.querySelectorAll({json.dumps(MESSAGE_TIME_SELECTOR)} + ', [class*="read"], [class*="status"]');
+                toRemove.forEach(r => r.remove());
+                
+                const msgText = cleanContent.innerText.trim();
+                const timeEl = el.querySelector({json.dumps(MESSAGE_TIME_SELECTOR)});
                 const timestamp = timeEl ? timeEl.innerText.trim() : "";
-                const direction = msg.getAttribute('data-direction');
-                const style = window.getComputedStyle(msg);
+                const direction = el.getAttribute('data-direction');
+                const style = window.getComputedStyle(el);
                 const isSelf = direction === 'reverse' || style.justifyContent === 'flex-end' || (msgText && msgText.startsWith(prefix));
+                
                 let sender = "";
                 if (isSelf) sender = msgText.startsWith(prefix) ? "Hermes" : ownerName;
-                else {{ const nameEl = msg.querySelector({json.dumps(SENDER_NAME_SELECTOR)}); sender = nameEl ? nameEl.innerText.trim() : chatName; }}
-                results.push({{ sender, text: msgText.replace(prefix, "").trim(), timestamp }});
+                else {{ 
+                    const nameEl = el.querySelector({json.dumps(SENDER_NAME_SELECTOR)}); 
+                    sender = nameEl ? nameEl.innerText.trim() : chatName; 
+                }}
+                
+                results.push({{ 
+                    sender, 
+                    text: msgText.replace(prefix, "").trim(), 
+                    timestamp,
+                    date: currentDate 
+                }});
             }});
-            const chronMessages = results.reverse();
+            
+            // 1. Chronological fix: In this DOM, querySelectorAll returns items from BOTTOM to TOP (Newest to Oldest).
+            // We reverse them to ensure the array flows [Oldest -> Newest].
+            const chronMessages = results.reverse(); 
+            
+            // 2. Time inheritance for messages in the same minute (same sender)
+            // Now that it's [Oldest -> Newest], i+1 is the newer message.
             for (let i = chronMessages.length - 2; i >= 0; i--) {{
                 if (!chronMessages[i].timestamp && chronMessages[i+1].timestamp && chronMessages[i].sender === chronMessages[i+1].sender) {{
                     chronMessages[i].timestamp = chronMessages[i+1].timestamp;
