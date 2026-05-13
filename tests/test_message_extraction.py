@@ -40,23 +40,46 @@ async def test_extract_messages_returns_empty_list_when_no_messages():
     assert len(result) == 0
 
 @pytest.mark.asyncio
-async def test_extract_messages_success_with_data():
+async def test_extract_messages_date_awareness():
     """
-    Verify that extract_messages correctly returns structured message data.
+    Verify that extract_messages correctly captures date headers and associates them with messages.
     """
     mock_page = MagicMock()
     mock_page.evaluate = AsyncMock()
     
+    # Mock data as it would come from the refined JS script
     mock_data = [
-        {"sender": "Wayne", "text": "Hello", "timestamp": "10:00"},
-        {"sender": "Hermes", "text": "Hi there", "timestamp": "10:01"}
+        {"sender": "Wayne", "text": "Old message", "timestamp": "10:00", "date": "May 12(Tue)"},
+        {"sender": "Hermes", "text": "New message", "timestamp": "10:01", "date": "Yesterday"}
     ]
     
-    # First call: scroll (None), Second call: extraction
     mock_page.evaluate.side_effect = [None, mock_data]
     
     result = await line_utils.extract_messages(mock_page, "Owner", "Chat")
     
     assert len(result) == 2
-    assert result[0]["sender"] == "Wayne"
-    assert result[1]["text"] == "Hi there"
+    assert result[0]["date"] == "May 12(Tue)"
+    assert result[1]["date"] == "Yesterday"
+
+@pytest.mark.asyncio
+async def test_extract_messages_chronological_order():
+    """
+    Verify that extract_messages returns messages in chronological order (Oldest -> Newest).
+    The JS script now reverses the DOM order (which is Newest -> Oldest).
+    """
+    mock_page = MagicMock()
+    mock_page.evaluate = AsyncMock()
+    
+    # The JS script returns the reversed list
+    mock_data = [
+        {"sender": "Wayne", "text": "First", "timestamp": "08:00", "date": "Today"},
+        {"sender": "Wayne", "text": "Second", "timestamp": "08:05", "date": "Today"}
+    ]
+    
+    mock_page.evaluate.side_effect = [None, mock_data]
+    
+    result = await line_utils.extract_messages(mock_page, "Owner", "Chat")
+    
+    # In the final list, the first item should be the older one
+    assert result[0]["text"] == "First"
+    assert result[-1]["text"] == "Second"

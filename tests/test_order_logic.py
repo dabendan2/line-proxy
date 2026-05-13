@@ -60,7 +60,7 @@ async def test_self_detection_logic():
     with open(src_path, "r") as f:
         content = f.read()
         
-    assert "msg.getAttribute('data-direction')" in content
+    assert "el.getAttribute('data-direction')" in content
     assert "direction === 'reverse'" in content
 
 @pytest.mark.asyncio

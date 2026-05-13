@@ -71,6 +71,38 @@ async def test_open_chat_success():
         assert result["chat_name"] == "Junyu"
 
 @pytest.mark.asyncio
+async def test_select_chat_prioritizes_private_on_name_collision():
+    """
+    Test that select_chat prioritizes a private chat when multiple matches (e.g. group and private) 
+    have the same name.
+    """
+    mock_page = MagicMock()
+    mock_page.locator = MagicMock()
+    
+    # Mock search results with a name collision
+    mock_chats = [
+        {"name": "Wayne", "type": "group", "chat_id": "c_group"},
+        {"name": "Wayne", "type": "private", "chat_id": "c_private"}
+    ]
+    
+    with patch("line_utils.is_logged_in", return_value=True), \
+         patch("line_utils.find_chats", return_value=mock_chats), \
+         patch("line_utils.open_chat", AsyncMock()) as mock_open:
+        
+        # We need to bypass the idempotency check by making the header not match
+        mock_header = AsyncMock()
+        mock_header.is_visible.return_value = False
+        mock_page.locator.return_value.first = mock_header
+        
+        import line_utils
+        await line_utils.select_chat(mock_page, "Wayne")
+        
+        # Verify that open_chat was called with the 'private' chat_id
+        args, kwargs = mock_open.call_args
+        assert args[2] == "private"
+        assert args[3] == "c_private"
+
+@pytest.mark.asyncio
 async def test_select_chat_idempotency():
     """Test that select_chat doesn't re-open if already on the chat."""
     mock_page = MagicMock()
