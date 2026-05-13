@@ -37,8 +37,11 @@ class LineProxyEngine:
         }
 
     def _build_prompt(self, context_lines: List[str]) -> str:
+        # TDD FIX: Only consider intro "already done" if it appears in the most recent 10 messages.
+        # This ensures that for new sessions or long conversations, the agent re-introduces itself.
+        recent_context = context_lines[-10:]
         intro_already_done = any("Hermes" in line and ("AI代理" in line or "AI 代理" in line or "AI Proxy" in line) 
-                                 for line in context_lines)
+                                 for line in recent_context)
         
         intro_instruction = ("你已經在之前的對話中自我介紹過了，現在請直接針對對方的最新訊息進行回覆，嚴禁再次重複自我介紹。" 
                              if intro_already_done else 
@@ -171,10 +174,11 @@ class LineProxyEngine:
             return error_msg
         
         msgs = await line_utils.extract_messages(self.page)
-        if not msgs: return
+        # TDD FIX: Proceed even if chat is empty (start of conversation)
+        if msgs is None: return
 
-        self.state.update(self.history.rebuild_state(msgs, self.task_description))
-        await self.generate_and_send_reply(msgs)
+        self.state.update(self.history.rebuild_state(msgs or [], self.task_description))
+        await self.generate_and_send_reply(msgs or [])
 
         while True:
             if time.time() - start_time > RUNTIME_TIMEOUT:

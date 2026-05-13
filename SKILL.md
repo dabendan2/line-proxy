@@ -21,7 +21,7 @@ Ensure the following variables are set in `~/.hermes/.env`. See `.env.example` f
 To avoid sending messages to the wrong group or contact when names are similar, you MUST follow this sequence:
 1. **Find**: Call `find_chats(keyword="NAME")` first.
 2. **Identify**: Extract the `chat_id` from the correct entry in the results.
-3. **Execute**: Pass both `chat_name` AND `chat_id` to subsequent tools (`run_task`, `open_chat`, `send_line_message`, etc.).
+3. **Execute**: Pass both `chat_name` AND `chat_id` to subsequent tools (`run_task`, `open_chat`, etc.).
 
 **3. Long-Running Task Execution Pattern:**
 Always use the `terminal` tool in `background=true` mode. Pass the `chat_id` if available to ensure the engine locks onto the correct room:
@@ -52,6 +52,7 @@ Unlike standard web apps, the LINE Extension's message list often places **Newes
 ### 2. Robust Self-Detection
 CSS Class names in the Extension are randomized (e.g., `message-module__message__7odk3`).
 - **Reliable Indicator**: We now use the `data-direction="reverse"` attribute and `justify-content: flex-end` computed styles to identify messages sent by the user.
+- **Intro Logic (TDD Fix)**: The agent checks the last 10 messages for a self-introduction. If not found (due to long conversations or new sessions), it will re-introduce itself as an AI proxy to ensure transparency.
 
 ### 3. Navigation Integrity
 - **Tab Switching**: The `select_chat` tool now automatically switches to the **'CHATS' tab** before searching. This prevents the "Friends" tab from opening a profile overlay instead of the chat window.
@@ -85,24 +86,20 @@ terminal(
   - **Precision**: Uses `chat_id` (the `data-mid` attribute) as the primary matching criterion to avoid ambiguity.
 - **`get_line_messages(chat_name, limit, chat_id)`**: 
   - **Returns**: `[{"sender": "...", "text": "...", "timestamp": "..."}]`.
+  - **Verification**: If 0 messages are returned, a screenshot proof is automatically captured and included in the response.
   - **Matching**: Uses `chat_id` if provided for precise chat selection.
   - **Sender Identification**: Automatically distinguishes between 'Owner', 'Hermes', and group members.
   - **Timestamp Inheritance**: Clustered messages inherit timestamps from the latest message in the cluster.
   - **Order**: Chronological (Oldest First).
 
-### 3. Messaging
-- **`send_line_message(chat_name, text, chat_id)`**: 
-  - Sends a message with the `[Hermes]` prefix.
-  - Uses `chat_id` for precise selection if provided.
-
-### 4. Session & Login
+### 3. Session & Login
 - **`login_line()`**: 
   - Uses `LINE_EMAIL` and `LINE_PASSWORD` from `.env`.
   - Returns `MFA_CODE_FOUND:XXXXXX` if a verification code is displayed.
   - Automatically polls for 5 minutes for phone verification success.
   - If not logged in, other tools will return an error guiding you to use this tool.
 
-### 5. Interactive Tasks (The "Brain")
+### 4. Interactive Tasks (The "Brain")
 - **`run_task(chat_name, task)`**: Synchronous AI-driven task execution. 
   - **WARNING**: Do not call directly. See "MANDATORY EXECUTION PROTOCOL" above.
 

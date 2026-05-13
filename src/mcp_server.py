@@ -124,7 +124,12 @@ async def get_line_messages(chat_name: str, limit: int = 10, chat_id: Optional[s
             if selection["status"] not in ["success"]: return json.dumps(selection)
             messages = await line_utils.extract_messages(page, owner_name=OWNER_NAME, chat_name=chat_name)
             recent = messages[-limit:] if limit > 0 else messages
-            return json.dumps({"status": "success", "chat": chat_name, "count": len(recent), "messages": recent})
+            response = {"status": "success", "chat": chat_name, "count": len(recent), "messages": recent}
+            if len(recent) == 0:
+                screenshot_path = SCREENSHOT_DIR / f"empty_chat_{chat_name}.png"
+                await page.screenshot(path=screenshot_path)
+                response["screenshot"] = str(screenshot_path)
+            return json.dumps(response)
         except Exception as e: return f"Error: {str(e)}"
 
 @mcp.tool()
