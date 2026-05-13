@@ -86,9 +86,17 @@ class BrowserManager:
         for i in range(max_retries):
             try:
                 import httpx
-                response = httpx.get(f"http://localhost:{self.port}/json/version", timeout=2)
+                response = httpx.get(f"http://localhost:{self.port}/json", timeout=2)
                 if response.status_code == 200:
-                    return {"status": "success", "port": self.port, "cdp_url": f"http://localhost:{self.port}"}
+                    pages = response.json()
+                    # Verify if extension index is actually loaded
+                    if any(self.ext_id in p.get("url", "") for p in pages):
+                        return {"status": "success", "port": self.port, "cdp_url": f"http://localhost:{self.port}"}
+                    
+                    # If port is open but page is wrong (e.g. chrome-error), 
+                    # we still return success but the tools will handle the navigation.
+                    # Or we could be more aggressive here.
+                    return {"status": "success", "message": "Browser up, but extension page may need navigation.", "port": self.port}
             except Exception:
                 pass
             time.sleep(2)

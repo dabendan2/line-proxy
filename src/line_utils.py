@@ -6,9 +6,31 @@ from config import EXTENSION_ID, HERMES_PREFIX, MESSAGE_INPUT_SELECTOR, CHATROOM
     MESSAGE_ITEM_SELECTOR, MESSAGE_CONTENT_SELECTOR, MESSAGE_TIME_SELECTOR, SENDER_NAME_SELECTOR
 
 async def get_line_page(context: Any) -> Any:
+    ext_url = f"chrome-extension://{EXTENSION_ID}/index.html"
+    # 1. Look for existing page
     for page in context.pages:
-        if EXTENSION_ID in page.url: return page
-    return None
+        if EXTENSION_ID in page.url:
+            # If it's an error page, force navigation
+            if "chrome-error" in page.url:
+                await page.goto(ext_url)
+                await asyncio.sleep(2)
+            return page
+    
+    # 2. If not found, try to repurpose any blank/error page
+    for page in context.pages:
+        if "chrome-error" in page.url or "about:blank" in page.url:
+            await page.goto(ext_url)
+            await asyncio.sleep(2)
+            return page
+            
+    # 3. Last resort: Create new page (usually shouldn't happen with the launcher)
+    try:
+        page = await context.new_page()
+        await page.goto(ext_url)
+        await asyncio.sleep(2)
+        return page
+    except:
+        return None
 
 async def is_logged_in(page: Any) -> bool:
     """Checks if the user is currently logged into the LINE extension."""
