@@ -76,14 +76,17 @@ async def find_chats(keyword: str, port: int = CDP_PORT) -> str:
                 
             matches = await line_utils.find_chats(page, keyword)
             screenshot_path = SCREENSHOT_DIR / f"find_chats_{keyword}.png"
-            await page.screenshot(path=screenshot_path)
+            
+            # CRITICAL: Always screenshot if no matches found to provide visual evidence (Vision-first)
+            if not matches:
+                await page.screenshot(path=screenshot_path)
             
             return json.dumps({
                 "status": "success", 
                 "keyword": keyword, 
                 "count": len(matches), 
                 "chats": matches,
-                "screenshot": str(screenshot_path)
+                "screenshot": str(screenshot_path) if not matches else None
             })
         except Exception as e: return f"Error: {str(e)}"
 

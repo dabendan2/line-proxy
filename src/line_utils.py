@@ -1,5 +1,6 @@
 import asyncio
 import re
+import json
 from typing import List, Dict, Optional, Any
 from config import EXTENSION_ID, HERMES_PREFIX, MESSAGE_INPUT_SELECTOR, CHATROOM_HEADER_SELECTOR, \
     CHATLIST_ITEM_TITLE_SELECTOR, FRIEND_LIST_ITEM_TITLE_SELECTOR, CHATLIST_ITEM_SELECTOR, CHATROOM_CONTAINER_SELECTOR, \
@@ -48,13 +49,15 @@ async def get_line_page(context: Any) -> Any:
                 
     return target_page
 
-async def is_logged_in(page: Any) -> bool:
-    """Checks if the user is currently logged into the LINE extension."""
+async def is_logged_in(page: Any, timeout_ms: int = 2000) -> bool:
+    """Checks if the user is currently logged into the LINE extension using event-driven waiting."""
     try:
-        # Check for presence of common elements in a logged-in state
-        friend_btn = page.locator('[aria-label="Friend"]').first
-        chat_btn = page.locator('[aria-label="Chat"]').first
-        return await friend_btn.is_visible() or await chat_btn.is_visible()
+        # Define a combined locator for either the Friend or Chat button
+        # This is event-driven: it resolves as soon as either element appears.
+        login_indicator = page.locator('[aria-label="Friend"]').or_(page.locator('[aria-label="Chat"]'))
+        
+        await login_indicator.first.wait_for(state="visible", timeout=timeout_ms)
+        return True
     except:
         return False
 
@@ -146,14 +149,26 @@ async def select_chat(page: Any, chat_name: str, chat_id: Optional[str] = None) 
     
     # Pick target by chat_id (Required Path)
     target = None
+    norm_target_name = re.sub(r'\s+', ' ', chat_name).strip().lower()
+    
     if chat_id:
         target = next((c for c in chats if c["chat_id"] == chat_id), None)
     else:
-        # If no chat_id provided, find the exact name match to get its ID
-        target = next((c for c in chats if c["name"] == chat_name), None)
+        # Robust selection: 
+        # 1. Look for exact normalized name match
+        # 2. Prioritize private chats if multiple partial matches exist
+        exact_matches = [c for c in chats if re.sub(r'\s+', ' ', c["name"]).strip().lower() == norm_target_name]
+        if exact_matches:
+            # If multiple exact name matches (rare), prioritize private
+            target = next((c for c in exact_matches if c["type"] == "private"), exact_matches[0])
+        else:
+            # Fallback to partial match
+            partial_matches = [c for c in chats if norm_target_name in re.sub(r'\s+', ' ', c["name"]).strip().lower()]
+            if partial_matches:
+                target = next((c for c in partial_matches if c["type"] == "private"), partial_matches[0])
     
     if not target or not target.get("chat_id"):
-        return {"status": "error", "error": f"Could not resolve unique chat_id for '{chat_name}'. Search results: {len(chats)}"}
+        return {"status": "error", "error": f"Could not resolve unique chat_id for '{chat_name}'. Found {len(chats)} candidates."}
         
     return await open_chat(page, target["name"], target["type"], target["chat_id"])
 
@@ -174,8 +189,22 @@ async def find_chats(page: Any, keyword: str) -> List[Dict[str, str]]:
         await page.keyboard.press("Backspace")
         await search_input.fill(keyword)
         
-        # Wait for results to stabilize
-        await asyncio.sleep(1.5) # Increased for stability
+        # EVENT-DRIVEN: Wait for results to reflect the keyword or "No results"
+        # This prevents the race condition where evaluate() runs before filtering is done.
+        try:
+            await page.wait_for_function(
+                """(kw) => {
+                    const items = document.querySelectorAll('[class*="title"], [class*="name"]');
+                    const text = Array.from(items).map(i => i.innerText).join(' ');
+                    const bodyText = document.body.innerText;
+                    return text.includes(kw) || bodyText.includes('No results') || bodyText.includes('查無結果') || bodyText.includes('沒有符合條件');
+                }""", 
+                keyword,
+                timeout=3000
+            )
+        except:
+            # Fallback to a small sleep if wait_for_function times out (it might be a partial match)
+            await asyncio.sleep(1)
         
         # 3. Scrape results using Top-Down classification
         script = """
@@ -263,13 +292,16 @@ async def open_chat(page: Any, chat_name: str, chat_type: str, chat_id: str) -> 
         # Perform click
         await target_el.scroll_into_view_if_needed()
         await target_el.click(force=True)
-        await asyncio.sleep(0.5)
 
         # Profile Bridge: Some searches open a profile card first
         chat_btn = page.locator('button:has-text("Chat"), button:has-text("聊天"), [role="button"]:has-text("Chat")').first
-        if await chat_btn.is_visible(timeout=2000):
+        try:
+            # Event-driven: Only wait if the button appears
+            await chat_btn.wait_for(state="visible", timeout=2000)
             await chat_btn.click()
-            await asyncio.sleep(1)
+        except:
+            # If no chat button appears within 2s, assume we're already in the chat or it's direct
+            pass
         
         # Verification: Both Header and Input Area must be visible
         header_locator = page.locator(CHATROOM_HEADER_SELECTOR).first
@@ -278,21 +310,21 @@ async def open_chat(page: Any, chat_name: str, chat_type: str, chat_id: str) -> 
         # Normalize chat_name for comparison
         norm_target_name = re.sub(r'\s+', ' ', chat_name).strip()
         
-        for _ in range(10):
-            h_vis = await header_locator.is_visible()
-            i_vis = await input_locator.is_visible()
-            if h_vis and i_vis:
-                header_text = await header_locator.inner_text()
-                actual_name = re.sub(r'\s+', ' ', header_text).strip()
-                
-                # If we have a chat_id, we've already clicked the right thing by ID.
-                # We prioritize success but still log/verify name if possible.
-                # We accept partial match if chat_id is used.
-                if chat_id or actual_name == norm_target_name or chat_name in actual_name:
-                    return {"status": "success", "chat_name": chat_name, "type": chat_type, "chat_id": chat_id}
-            await asyncio.sleep(0.5)
+        # Event-driven: Wait for both header and input to be visible
+        try:
+            await asyncio.gather(
+                header_locator.wait_for(state="visible", timeout=5000),
+                input_locator.wait_for(state="visible", timeout=5000)
+            )
+            header_text = await header_locator.inner_text()
+            actual_name = re.sub(r'\s+', ' ', header_text).strip()
+            
+            if chat_id or actual_name == norm_target_name or chat_name in actual_name:
+                return {"status": "success", "chat_name": chat_name, "type": chat_type, "chat_id": chat_id}
+        except Exception as e:
+            return {"status": "error", "error": f"Verification failed: {str(e)}. Target: {norm_target_name}"}
 
-        return {"status": "error", "error": f"Verification failed. Header visible: {h_vis}, Input visible: {i_vis}. Target: {norm_target_name}"}
+        return {"status": "error", "error": f"Verification failed. Target: {norm_target_name}"}
         
     except Exception as e:
         return {"status": "error", "error": str(e)}
@@ -306,30 +338,31 @@ async def extract_messages(page: Any, owner_name: str = "Owner", chat_name: str 
             if (el) el.scrollTop = el.scrollHeight;
         }}''', chatroom)
         
+        # Use json.dumps to safely inject strings into the JS template
         script = f"""
         () => {{
             const results = [];
-            const prefix = "{HERMES_PREFIX}";
-            const ownerName = "{owner_name}";
-            const chatName = "{chat_name}";
-            const chatroom = document.querySelector('{CHATROOM_CONTAINER_SELECTOR}');
+            const prefix = {json.dumps(HERMES_PREFIX)};
+            const ownerName = {json.dumps(owner_name)};
+            const chatName = {json.dumps(chat_name)};
+            const chatroom = document.querySelector({json.dumps(CHATROOM_CONTAINER_SELECTOR)});
             if (!chatroom) throw new Error('Chatroom container not found. Check if the chat is properly opened.');
-            const items = Array.from(chatroom.querySelectorAll('{MESSAGE_ITEM_SELECTOR}')).filter(el => {{
+            const items = Array.from(chatroom.querySelectorAll({json.dumps(MESSAGE_ITEM_SELECTOR)})).filter(el => {{
                 const style = window.getComputedStyle(el);
                 return style.display !== 'none' && style.visibility !== 'hidden' && el.offsetHeight > 0;
             }});
             items.forEach(msg => {{
-                const contentEl = msg.querySelector('{MESSAGE_CONTENT_SELECTOR}');
+                const contentEl = msg.querySelector({json.dumps(MESSAGE_CONTENT_SELECTOR)});
                 if (!contentEl) return;
                 const msgText = contentEl.innerText.trim();
-                const timeEl = msg.querySelector('{MESSAGE_TIME_SELECTOR}');
+                const timeEl = msg.querySelector({json.dumps(MESSAGE_TIME_SELECTOR)});
                 const timestamp = timeEl ? timeEl.innerText.trim() : "";
                 const direction = msg.getAttribute('data-direction');
                 const style = window.getComputedStyle(msg);
                 const isSelf = direction === 'reverse' || style.justifyContent === 'flex-end' || (msgText && msgText.startsWith(prefix));
                 let sender = "";
                 if (isSelf) sender = msgText.startsWith(prefix) ? "Hermes" : ownerName;
-                else {{ const nameEl = msg.querySelector('{SENDER_NAME_SELECTOR}'); sender = nameEl ? nameEl.innerText.trim() : chatName; }}
+                else {{ const nameEl = msg.querySelector({json.dumps(SENDER_NAME_SELECTOR)}); sender = nameEl ? nameEl.innerText.trim() : chatName; }}
                 results.push({{ sender, text: msgText.replace(prefix, "").trim(), timestamp }});
             }});
             const chronMessages = results.reverse();
