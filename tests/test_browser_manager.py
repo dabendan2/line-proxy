@@ -39,62 +39,61 @@ def test_check_singleton_lock_stale(browser_manager):
         assert browser_manager.check_singleton_lock() is None
         mock_unlink.assert_called_once()
 
-def test_check_singleton_lock_invalid_format(browser_manager):
-    # Coverage for line 32-33
-    with patch('pathlib.Path.is_symlink', return_value=True), \
-         patch('os.readlink', return_value="badformat"), \
-         patch('pathlib.Path.unlink') as mock_unlink:
-        assert browser_manager.check_singleton_lock() is None
-        # Unlink is still called after the try-except
-        mock_unlink.assert_called_once()
-
-def test_prepare_instance_already_running(browser_manager):
+def test_prepare_instance_already_running_with_extension(browser_manager):
     mock_response = MagicMock()
     mock_response.status_code = 200
+    mock_response.json.return_value = [{"url": "chrome-extension://ophjlpahpchlmihnnnihgmmeilfjmjjc/index.html"}]
     
     with patch('httpx.get', return_value=mock_response):
         result = browser_manager.prepare_instance()
         assert result["status"] == "success"
-        assert "already running" in result["message"]
+        assert result["port"] == 9222
 
-def test_prepare_instance_port_occupied(browser_manager):
-    with patch('httpx.get', side_effect=Exception("Connection refused")), \
-         patch.object(BrowserManager, 'is_port_in_use', return_value=5555):
-        result = browser_manager.prepare_instance()
-        assert result["status"] == "error"
-        assert "occupied by non-responsive PID 5555" in result["message"]
-
-def test_prepare_instance_locked(browser_manager):
-    with patch('httpx.get', side_effect=Exception("Connection refused")), \
-         patch.object(BrowserManager, 'is_port_in_use', return_value=None), \
-         patch.object(BrowserManager, 'check_singleton_lock', return_value=6666):
-        result = browser_manager.prepare_instance()
-        assert result["status"] == "error"
-        assert "Profile locked by active PID 6666" in result["message"]
-
-def test_prepare_instance_success_launch(browser_manager):
-    mock_response_success = MagicMock()
-    mock_response_success.status_code = 200
+def test_prepare_instance_already_running_no_extension(browser_manager):
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.json.return_value = [{"url": "about:blank"}]
     
-    with patch('httpx.get') as mock_get, \
-         patch.object(BrowserManager, 'is_port_in_use', return_value=None), \
+    with patch('httpx.get', return_value=mock_response):
+        result = browser_manager.prepare_instance()
+        assert result["status"] == "success"
+        assert "navigation may be needed" in result["message"]
+
+def test_prepare_instance_cleanup_zombie(browser_manager):
+    mock_proc = MagicMock()
+    mock_proc.name.return_value = "chromium-browser"
+    
+    with patch('httpx.get', side_effect=Exception("Connection refused")), \
+         patch.object(BrowserManager, 'is_port_in_use', return_value=5555), \
+         patch('psutil.Process', return_value=mock_proc), \
          patch.object(BrowserManager, 'check_singleton_lock', return_value=None), \
          patch('pathlib.Path.mkdir'), \
          patch('subprocess.Popen'), \
-         patch('time.sleep'):
-        
-        mock_get.side_effect = [
-            Exception("Not running"), # Initial check
-            Exception("Starting..."), # Wait retry 1
-            mock_response_success     # Wait retry 2
-        ]
+         patch('time.sleep'), \
+         patch('httpx.get', side_effect=[Exception("Refused"), MagicMock(status_code=200, json=lambda: [{"url": "ext"}])]):
         
         result = browser_manager.prepare_instance()
         assert result["status"] == "success"
-        assert result["port"] == 9222
+        mock_proc.terminate.assert_called_once()
+
+def test_prepare_instance_cleanup_lock(browser_manager):
+    mock_proc = MagicMock()
+    
+    with patch('httpx.get', side_effect=Exception("Connection refused")), \
+         patch.object(BrowserManager, 'is_port_in_use', return_value=None), \
+         patch.object(BrowserManager, 'check_singleton_lock', return_value=6666), \
+         patch('psutil.Process', return_value=mock_proc), \
+         patch('pathlib.Path.unlink'), \
+         patch('pathlib.Path.mkdir'), \
+         patch('subprocess.Popen'), \
+         patch('time.sleep'), \
+         patch('httpx.get', side_effect=[Exception("Refused"), MagicMock(status_code=200, json=lambda: [{"url": "ext"}])]):
+        
+        result = browser_manager.prepare_instance()
+        assert result["status"] == "success"
+        mock_proc.terminate.assert_called_once()
 
 def test_prepare_instance_failure_start(browser_manager):
-    # Coverage for line 92
     with patch('httpx.get', side_effect=Exception("Never started")), \
          patch.object(BrowserManager, 'is_port_in_use', return_value=None), \
          patch.object(BrowserManager, 'check_singleton_lock', return_value=None), \

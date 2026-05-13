@@ -7,30 +7,46 @@ from config import EXTENSION_ID, HERMES_PREFIX, MESSAGE_INPUT_SELECTOR, CHATROOM
 
 async def get_line_page(context: Any) -> Any:
     ext_url = f"chrome-extension://{EXTENSION_ID}/index.html"
-    # 1. Look for existing page
+    target_page = None
+    
+    # 1. First pass: Find our target
     for page in context.pages:
         if EXTENSION_ID in page.url:
-            # If it's an error page, force navigation
+            target_page = page
             if "chrome-error" in page.url:
                 await page.goto(ext_url)
                 await asyncio.sleep(2)
-            return page
+            break
     
-    # 2. If not found, try to repurpose any blank/error page
-    for page in context.pages:
-        if "chrome-error" in page.url or "about:blank" in page.url:
+    # 2. If not found, repurpose a blank/error page
+    if not target_page:
+        for page in context.pages:
+            if "chrome-error" in page.url or "about:blank" in page.url:
+                await page.goto(ext_url)
+                await asyncio.sleep(2)
+                target_page = page
+                break
+                
+    # 3. Create new if still not found
+    if not target_page:
+        try:
+            target_page = await context.new_page()
             await page.goto(ext_url)
             await asyncio.sleep(2)
-            return page
+        except:
+            return None
             
-    # 3. Last resort: Create new page (usually shouldn't happen with the launcher)
-    try:
-        page = await context.new_page()
-        await page.goto(ext_url)
-        await asyncio.sleep(2)
-        return page
-    except:
-        return None
+    # 4. SINGLETON ENFORCEMENT: Close all OTHER regular pages
+    # We keep service workers and background pages (handled by Playwright context internally)
+    # but close other UI tabs to keep the environment clean.
+    for page in context.pages:
+        if page != target_page and not any(ext in page.url for ext in ["devtools", "background"]):
+            try:
+                await page.close()
+            except:
+                pass
+                
+    return target_page
 
 async def is_logged_in(page: Any) -> bool:
     """Checks if the user is currently logged into the LINE extension."""

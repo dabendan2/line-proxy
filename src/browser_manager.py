@@ -36,30 +36,54 @@ class BrowserManager:
         return None
 
     def prepare_instance(self) -> Dict[str, Any]:
-        # 1. Check if port is already providing a valid CDP endpoint
+        # 1. Active CDP Check (Fast path)
         try:
             import httpx
-            response = httpx.get(f"http://localhost:{self.port}/json/version", timeout=1)
+            response = httpx.get(f"http://localhost:{self.port}/json", timeout=2)
             if response.status_code == 200:
-                return {"status": "success", "message": "Browser already running and responsive.", "port": self.port, "cdp_url": f"http://localhost:{self.port}"}
+                pages = response.json()
+                # If we have a responsive CDP and the extension page is there, we're golden
+                if any(self.ext_id in p.get("url", "") for p in pages):
+                    return {"status": "success", "port": self.port, "cdp_url": f"http://localhost:{self.port}"}
+                # If no extension page, tools will handle navigation later
+                return {"status": "success", "message": "Browser up, extension page navigation may be needed.", "port": self.port}
         except Exception:
             pass
 
-        # 2. Check Port occupation by other processes
+        # 2. Zombie / Stale Port Cleanup
+        # If the port is in use but step 1 failed, it's a zombie or another app.
         occupied_pid = self.is_port_in_use()
         if occupied_pid:
-            # If it's occupied but not responding to CDP, it's a zombie or another app
-            return {"status": "error", "message": f"Port {self.port} occupied by non-responsive PID {occupied_pid}"}
+            try:
+                proc = psutil.Process(occupied_pid)
+                if "chrome" in proc.name().lower() or "chromium" in proc.name().lower():
+                    print(f"Cleaning up zombie chrome process (PID {occupied_pid}) on port {self.port}...")
+                    proc.terminate()
+                    proc.wait(timeout=5)
+                else:
+                    return {"status": "error", "message": f"Port {self.port} occupied by foreign process: {proc.name()}"}
+            except Exception as e:
+                return {"status": "error", "message": f"Port {self.port} blocked and cleanup failed: {str(e)}"}
 
-        # 3. Check Lock
+        # 3. Singleton Lock Recovery
         active_pid = self.check_singleton_lock()
         if active_pid:
-            return {"status": "error", "message": f"Profile locked by active PID {active_pid}"}
+            # If we reached here, the port check failed, so the process holding the lock is a zombie
+            try:
+                proc = psutil.Process(active_pid)
+                print(f"Terminating process {active_pid} holding stale lock on {self.user_data_dir}...")
+                proc.terminate()
+                proc.wait(timeout=5)
+            except:
+                pass
+            
+            # Force unlink stale lock
+            lock_file = self.user_data_dir / "SingletonLock"
+            if lock_file.exists(): lock_file.unlink()
 
-        # 3. Create Dirs
+        # 4. Create Dirs and Launch
         self.user_data_dir.mkdir(parents=True, exist_ok=True)
 
-        # Launch via xvfb-run
         cmd = [
             "xvfb-run", "-a", "-s", "-screen 0 1600x1000x24",
             "chromium-browser",
@@ -74,7 +98,6 @@ class BrowserManager:
             f"chrome-extension://{self.ext_id}/index.html"
         ]
         
-        # Start in background and log output to a file instead of DEVNULL
         log_file = Path.home() / ".line-proxy" / "logs" / "browser_startup.log"
         log_file.parent.mkdir(parents=True, exist_ok=True)
         with open(log_file, "a") as f:
@@ -89,13 +112,8 @@ class BrowserManager:
                 response = httpx.get(f"http://localhost:{self.port}/json", timeout=2)
                 if response.status_code == 200:
                     pages = response.json()
-                    # Verify if extension index is actually loaded
                     if any(self.ext_id in p.get("url", "") for p in pages):
                         return {"status": "success", "port": self.port, "cdp_url": f"http://localhost:{self.port}"}
-                    
-                    # If port is open but page is wrong (e.g. chrome-error), 
-                    # we still return success but the tools will handle the navigation.
-                    # Or we could be more aggressive here.
                     return {"status": "success", "message": "Browser up, but extension page may need navigation.", "port": self.port}
             except Exception:
                 pass
