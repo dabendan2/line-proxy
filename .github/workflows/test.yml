@@ -1,0 +1,43 @@
+name: CI Tests
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    services:
+      xvfb:
+        image: Xvfb
+        # Note: Github Actions ubuntu-latest has xvfb pre-installed. 
+        # We will use xvfb-run in the step.
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python 3.11
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
+    - name: Install Python dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+
+    - name: Install Playwright Browsers
+      run: |
+        playwright install chromium --with-deps
+
+    - name: Run Tests with XVFB
+      env:
+        GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+        TIMEOUT_SET: 180
+        LINE_OWNER_NAME: "CI-Bot"
+        LINE_DEFAULT_MODEL: "gemini-1.5-flash"
+      run: |
+        xvfb-run -a python run_line_tests.py
