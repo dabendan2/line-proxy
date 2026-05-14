@@ -218,7 +218,12 @@ async def run_task(chat_name: str, task: str, channel: str = "line", chat_id: Op
     if chat_id:
         cmd.extend(["--chat_id", chat_id])
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, check=False)
+        # Set working directory and PYTHONPATH to the src folder so imports like 'from channels...' work
+        working_dir = os.path.dirname(__file__)
+        env = os.environ.copy()
+        env["PYTHONPATH"] = working_dir + (os.pathsep + env.get("PYTHONPATH", "") if env.get("PYTHONPATH") else "")
+        
+        result = subprocess.run(cmd, capture_output=True, text=True, check=False, cwd=working_dir, env=env)
         return json.dumps({
             "status": "completed" if result.returncode == 0 else "failed", 
             "channel": channel,
