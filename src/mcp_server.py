@@ -4,11 +4,11 @@ from typing import List, Dict, Any, Optional
 import json
 import subprocess
 from mcp.server.fastmcp import FastMCP
-from browser_manager import BrowserManager
-from engine import LineProxyEngine
-import line_utils
+from utils.browser import BrowserManager
+from core.engine import LineProxyEngine
+from channels.line import driver as line_utils
 from playwright.async_api import async_playwright
-from config import CDP_PORT, DEFAULT_PROFILE, DEFAULT_MODEL, LOG_DIR, SCREENSHOT_DIR, \
+from utils.config import CDP_PORT, DEFAULT_PROFILE, DEFAULT_MODEL, LOG_DIR, SCREENSHOT_DIR, \
     ENV_PATH, VIEWPORT_WIDTH, VIEWPORT_HEIGHT, SEARCH_INPUT_SELECTOR, SEARCH_TIMEOUT, OWNER_NAME, \
     LINE_EMAIL, LINE_PASSWORD
 
@@ -141,7 +141,7 @@ async def run_task(chat_name: str, task: str, chat_id: Optional[str] = None, por
     api_key = os.environ.get("GOOGLE_API_KEY")
     if not api_key: return "Error: GOOGLE_API_KEY not found."
     venv_python = sys.executable
-    run_script = os.path.join(os.path.dirname(__file__), "run_engine.py")
+    run_script = os.path.join(os.path.dirname(__file__), "channels/line/run_engine.py")
     cmd = [venv_python, run_script, "--chat_name", chat_name, "--task", task, "--port", str(port), "--model", model]
     if chat_id:
         cmd.extend(["--chat_id", chat_id])

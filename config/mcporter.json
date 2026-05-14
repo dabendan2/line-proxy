@@ -1,9 +1,9 @@
 {
   "mcpServers": {
     "line_proxy": {
-      "command": "/home/ubuntu/line-proxy/venv/bin/python3",
+      "command": "/home/ubuntu/chat-agent/venv/bin/python3",
       "args": [
-        "/home/ubuntu/line-proxy/src/mcp_server.py"
+        "/home/ubuntu/chat-agent/src/mcp_server.py"
       ]
     }
   }

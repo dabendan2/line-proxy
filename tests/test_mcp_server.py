@@ -15,7 +15,7 @@ mock_line_utils = MagicMock()
 
 @pytest.mark.asyncio
 async def test_prepare_line_instance_tool():
-    with patch("browser_manager.BrowserManager", return_value=mock_browser_manager):
+    with patch("utils.browser.BrowserManager", return_value=mock_browser_manager):
         mock_browser_manager.prepare_instance.return_value = {"status": "success", "port": 9222}
         import mcp_server
         
@@ -37,9 +37,9 @@ async def test_find_chats_tool():
         mock_browser.contexts = [mock_context]
         mock_p.return_value.__aenter__.return_value.chromium.connect_over_cdp.return_value = mock_browser
         
-        with patch("line_utils.get_line_page", return_value=mock_page), \
-             patch("line_utils.is_logged_in", return_value=True), \
-             patch("line_utils.find_chats", return_value=mock_chats):
+        with patch("channels.line.driver.get_line_page", return_value=mock_page), \
+             patch("channels.line.driver.is_logged_in", return_value=True), \
+             patch("channels.line.driver.find_chats", return_value=mock_chats):
             
             import mcp_server
             # Reload to ensure new tools are registered if needed, though import is fine
@@ -62,9 +62,9 @@ async def test_open_chat_tool():
         mock_browser.contexts = [mock_context]
         mock_p.return_value.__aenter__.return_value.chromium.connect_over_cdp.return_value = mock_browser
         
-        with patch("line_utils.get_line_page", return_value=mock_page), \
-             patch("line_utils.is_logged_in", return_value=True), \
-             patch("line_utils.open_chat", return_value=mock_res):
+        with patch("channels.line.driver.get_line_page", return_value=mock_page), \
+             patch("channels.line.driver.is_logged_in", return_value=True), \
+             patch("channels.line.driver.open_chat", return_value=mock_res):
             
             import mcp_server
             result = await mcp_server.open_chat(chat_name="Junyu", chat_type="private", chat_id="u123", port=9222)
@@ -86,9 +86,9 @@ async def test_get_line_messages_tool():
         mock_browser.contexts = [mock_context]
         mock_p.return_value.__aenter__.return_value.chromium.connect_over_cdp.return_value = mock_browser
         
-        with patch("line_utils.get_line_page", return_value=mock_page), \
-             patch("line_utils.select_chat", return_value={"status": "success"}), \
-             patch("line_utils.extract_messages", return_value=mock_msgs):
+        with patch("channels.line.driver.get_line_page", return_value=mock_page), \
+             patch("channels.line.driver.select_chat", return_value={"status": "success"}), \
+             patch("channels.line.driver.extract_messages", return_value=mock_msgs):
             
             import mcp_server
             result = await mcp_server.get_line_messages(chat_name="test_chat", limit=1)
