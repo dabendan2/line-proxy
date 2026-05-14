@@ -1,108 +1,69 @@
 ---
-name: line-proxy
-description: Expert guide for the LINE Proxy MCP Server - Blocking automation, terminal notifications, and history extraction.
-version: 3.1.0
-tags: [line, mcp, automation, proxy]
+name: chat-agent
+description: Expert guide for the Chat Agent System - A modular multi-channel messaging automation platform (LINE, etc.).
+version: 4.0.0
+tags: [chat, automation, ai-agent, mcp, multi-channel]
 ---
 
-# LINE Proxy MCP Server
+# Chat Agent System
 
-This server provides direct tools to interact with the LINE Chrome Extension via CDP (Port 9222). It is optimized for **Hermes Terminal Notifications**, ensuring proactive feedback for all automated tasks.
+A modular platform for automated communication across multiple channels (LINE, and future integrations like Messenger, Taobao, etc.), driven by a decoupled AI Engine.
 
 ## ⚠️ MANDATORY EXECUTION PROTOCOL
 
 **1. Environment Configuration:**
-Ensure the following variables are set in `~/.hermes/.env`. See `.env.example` for details:
+Ensure variables are set in `~/.hermes/.env`:
 - `LINE_OWNER_NAME`: Your display name for AI attribution.
 - `LINE_DEFAULT_MODEL`: The Gemini model to use.
-- `GOOGLE_API_KEY`: Required for AI logic.
+- `GOOGLE_API_KEY`: Required for AI reasoning.
+- Data and logs are stored in `~/.chat-agent/`.
 
-**2. Precise Chat Interaction Workflow (The "Ladder" Pattern):**
-To avoid sending messages to the wrong group or contact when names are similar, you MUST follow this sequence:
-1. **Find**: Call `find_chats(keyword="NAME")` first.
-2. **Identify**: Extract the `chat_id` from the correct entry in the results.
-3. **Execute**: Pass both `chat_name` AND `chat_id` to subsequent tools (`run_task`, `open_chat`, etc.).
+**2. Multi-Channel Architecture:**
+- **Core Engine**: `src/core/engine.py` (ChatEngine). It is decoupled from UI specifics.
+- **Channels**: Platform-specific drivers in `src/channels/`.
+- **Abstraction**: All channels must implement the `BaseChannel` interface (`src/core/base_channel.py`).
 
-**3. Long-Running Task Execution Pattern:**
-Always use the `terminal` tool in `background=true` mode. Pass the `chat_id` if available to ensure the engine locks onto the correct room:
+**3. Precise Chat Interaction (The "Ladder" Pattern):**
+To avoid platform-specific errors, always:
+1. **Find**: `find_chats(keyword="NAME")`.
+2. **Identify**: Extract `chat_id` (e.g., MID for LINE).
+3. **Execute**: Pass `chat_name` AND `chat_id` to `run_task` or `open_chat`.
+
+## 🛠 Project Structure
+
+```text
+src/
+├── core/                # AI reasoning & history management
+├── channels/            # Platform implementations (e.g., line/)
+├── utils/               # Shared tools (browser, locker, config)
+└── mcp_server.py        # Unified MCP entry point
+```
+
+## 🚀 Core Implementation Patterns
+
+### Long-Running Tasks
+Always use `background=true` for automation to prevent timeouts:
 ```python
 terminal(
-    command="mcporter call line_proxy.run_task chat_name:\"NAME\" chat_id:\"ID\" task:\"DESCRIPTION\" --timeout 3600000",
+    command="mcporter call line_proxy.run_task chat_name:\"NAME\" chat_id:\"ID\" task:\"TASK\" --timeout 3600000",
     background=true,
     notify_on_complete=true
 )
 ```
 
-**2. Testing & Git Commit Safety Pattern:**
-To prevent incomplete test runs and protect Git integrity in Hermes environments, you MUST explicitly declare the timeout. If `TIMEOUT_SET` is missing or below 180, the execution will be blocked.
-```python
-terminal(
-    command="export TIMEOUT_SET=180 && git commit -m '...' --verify",
-    timeout=180
-)
+### Testing Safety
+Explicitly declare timeout for Git/Tests:
+```bash
+export TIMEOUT_SET=180 && npm test
 ```
 
-## 🛠 Latest Technical Discoveries (May 2026)
+## 🧩 Channel Interface (BaseChannel)
+Any new channel must implement:
+- `select_chat(name, id)`: Navigate to chat.
+- `extract_messages(limit)`: Fetch history.
+- `send_message(text)`: Send reply.
+- `send_image(path)`: Send media.
 
-### 1. DOM Traversal Quirk: Newest-First
-Unlike standard web apps, the LINE Extension's message list often places **Newest messages at the top** of the DOM tree.
-- **Impact**: Standard `querySelectorAll` results are in reverse chronological order.
-- **Fix**: The `extract_messages` tool automatically reverses the results to ensure the Engine receives the standard **Oldest-First** list (where `msgs[-1]` is the latest).
-
-### 2. Robust Self-Detection
-CSS Class names in the Extension are randomized (e.g., `message-module__message__7odk3`).
-- **Reliable Indicator**: We now use the `data-direction="reverse"` attribute and `justify-content: flex-end` computed styles to identify messages sent by the user.
-- **Intro Logic (TDD Fix)**: The agent checks the last 10 messages for a self-introduction. If not found (due to long conversations or new sessions), it will re-introduce itself as an AI proxy to ensure transparency.
-
-### 3. Navigation Integrity
-- **Tab Switching**: The `select_chat` tool now automatically switches to the **'CHATS' tab** before searching. This prevents the "Friends" tab from opening a profile overlay instead of the chat window.
-- **Profile Overlay Handling**: If clicking a contact opens a **Profile Popup** (common when search results include non-active chats), `select_chat` now automatically detects and clicks the **'Chat'** button to enter the room.
-- **Pointer Events**: Uses `force=True` on clicks to bypass UI layers that intercept pointer events.
-
-## Core Implementation Pattern: Blocking + Notifications
-
-Always use the `terminal` tool with `background=true` and `notify_on_complete=true` to start long-running tasks. 
-
-```python
-terminal(
-    command="mcporter call line_proxy.run_task chat_name:\"NAME\" task:\"DESCRIPTION\" --timeout 3600000",
-    background=true,
-    notify_on_complete=true
-)
-```
-
-## Tool Reference (MCP)
-
-### 1. Instance Management
-- **`prepare_line_instance(port, profile_name)`**: Ensures Chromium is running with the correct profile.
-
-### 2. Chat Navigation & Inspection
-- **`find_chats(keyword)`**: 
-  - Searches for chats (private or group) matching the keyword.
-  - **Returns**: `[{"name": "...", "type": "...", "chat_id": "..."}]`.
-  - **Deduplication**: Results are automatically deduplicated by `chat_id`.
-- **`open_chat(chat_name, chat_type, chat_id)`**:
-  - Navigates to and opens a specific chat.
-  - **Precision**: Uses `chat_id` (the `data-mid` attribute) as the primary matching criterion to avoid ambiguity.
-- **`get_line_messages(chat_name, limit, chat_id)`**: 
-  - **Returns**: `[{"sender": "...", "text": "...", "timestamp": "..."}]`.
-  - **Verification**: If 0 messages are returned, a screenshot proof is automatically captured and included in the response.
-  - **Matching**: Uses `chat_id` if provided for precise chat selection.
-  - **Sender Identification**: Automatically distinguishes between 'Owner', 'Hermes', and group members.
-  - **Timestamp Inheritance**: Clustered messages inherit timestamps from the latest message in the cluster.
-  - **Order**: Chronological (Oldest First).
-
-### 3. Session & Login
-- **`login_line()`**: 
-  - Uses `LINE_EMAIL` and `LINE_PASSWORD` from `.env`.
-  - Returns `MFA_CODE_FOUND:XXXXXX` if a verification code is displayed.
-  - Automatically polls for 5 minutes for phone verification success.
-  - If not logged in, other tools will return an error guiding you to use this tool.
-
-### 4. Interactive Tasks (The "Brain")
-- **`run_task(chat_name, task)`**: Synchronous AI-driven task execution. 
-  - **WARNING**: Do not call directly. See "MANDATORY EXECUTION PROTOCOL" above.
-
-## Maintenance & Logs
-- **Logs**: `~/.line-proxy/logs/{chat_name}.log`
- - **Tests**: `pytest tests/test_chat_navigation.py` (Run within the venv)
+## ログ & メンテナンス (Maintenance)
+- **Logs**: `~/.chat-agent/logs/{chat_name}.log`
+- **Tests**: `./venv/bin/python run_line_tests.py` (Verify all 59 tests)
