@@ -1,5 +1,7 @@
 playwright
 google-generativeai
+google-genai
+httpx
 pytest
 pytest-asyncio
 psutil
