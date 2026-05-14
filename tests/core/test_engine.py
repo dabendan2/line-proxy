@@ -41,26 +41,33 @@ async def test_engine_runtime_timeout_logging():
 @pytest.mark.asyncio
 async def test_run_engine_cli_reports_timeout(capsys):
     """
-    Verify that run_engine.py reports the real status 
+    Verify that run_engine.py reports the real status
     instead of hardcoded success on timeout.
     """
-    from channels.line.run_engine import main
+    from core.run_engine import main
     
-    with patch("channels.line.run_engine.ChatEngine") as mock_engine_class, \
-         patch("channels.line.run_engine.PIDLock"), \
+    with patch("core.run_engine.ChatEngine") as mock_engine_class, \
+         patch("core.run_engine.PIDLock"), \
          patch("os.environ", {"GOOGLE_API_KEY": "test"}), \
-         patch("channels.line.run_engine.TaskRefactorer", create=True), \
-         patch("channels.line.run_engine.async_playwright"), \
-         patch("channels.line.run_engine.line_utils.get_line_page"), \
+         patch("core.refactorer.TaskRefactorer") as mock_refactorer_class, \
+         patch("core.run_engine.async_playwright") as mock_p, \
+         patch("core.run_engine.ChannelFactory") as mock_factory, \
          patch("sys.argv", ["run_engine.py", "--chat_name", "test", "--task", "test"]):
         
-        mock_instance = mock_engine_class.return_value
-        mock_instance.run = AsyncMock(return_value="[RESTART_REQUIRED] Runtime limit reached.")
+        mock_refactorer_class.return_value.refactor.return_value = "test"
+        mock_factory.create_instance.return_value = MagicMock()
         
-        with pytest.raises(SystemExit) as excinfo:
-            await main()
-        
-        assert excinfo.value.code == 1
+        # Mock line_utils for the page retrieval logic
+        mock_line_utils = MagicMock()
+        mock_line_utils.get_line_page = AsyncMock(return_value=MagicMock())
+        with patch.dict("sys.modules", {"channels.line": MagicMock(driver=mock_line_utils)}):
+            mock_instance = mock_engine_class.return_value
+            mock_instance.run = AsyncMock(return_value="[RESTART_REQUIRED] Runtime limit reached.")
+            
+            with pytest.raises(SystemExit) as excinfo:
+                await main()
+            
+            assert excinfo.value.code == 1
             
     captured = capsys.readouterr()
     assert "ERROR" in captured.out

@@ -19,13 +19,18 @@ Ensure variables are set in `~/.hermes/.env`:
 - Data and logs are stored in `~/.chat-agent/`.
 
 **2. Multi-Channel Architecture:**
-- **Core Engine**: `src/core/engine.py` (ChatEngine). It is decoupled from UI specifics.
-- **Channels**: Platform-specific drivers in `src/channels/`.
-- **Abstraction**: All channels must implement the `BaseChannel` interface (`src/core/base_channel.py`).
+- **Core Engine**: `src/core/engine.py` (ChatEngine). Decoupled from UI specifics.
+- **Channel Factory**: `src/channels/factory.py`. Central registry for adding/retrieving channels.
+- **Channels**: Platform-specific drivers in `src/channels/` (e.g., `line/`, `messenger/`).
+- **Abstraction**: All channels must implement the `BaseChannel` interface (`src/channels/base.py`).
 
-**3. Precise Chat Interaction (The "Ladder" Pattern):**
+**3. Tool Usage via MCP:**
+- **Generalized Tools**: `login`, `prepare_instance`, `find_chats`, `open_chat`, `get_messages`, `run_task`.
+- **Channel Parameter**: All tools now accept a `channel` argument (defaulting to "line").
+
+**4. Precise Chat Interaction (The "Ladder" Pattern):**
 To avoid platform-specific errors, always:
-1. **Find**: `find_chats(keyword="NAME")`.
+1. **Find**: `find_chats(keyword="NAME", channel="line")`.
 2. **Identify**: Extract `chat_id` (e.g., MID for LINE).
 3. **Execute**: Pass `chat_name` AND `chat_id` to `run_task` or `open_chat`.
 
@@ -34,9 +39,14 @@ To avoid platform-specific errors, always:
 ```text
 src/
 ├── core/                # AI reasoning & history management
-├── channels/            # Platform implementations (e.g., line/)
+│   ├── engine.py
+│   └── run_engine.py    # Generic engine runner
+├── channels/            # Platform implementations
+│   ├── base.py          # Abstract BaseChannel interface
+│   ├── factory.py       # Channel registry & factory
+│   └── line/            # LINE driver implementation
 ├── utils/               # Shared tools (browser, locker, config)
-└── mcp_server.py        # Unified MCP entry point
+└── mcp_server.py        # Generalized MCP entry point
 ```
 
 ## 🚀 Core Implementation Patterns
@@ -45,24 +55,22 @@ src/
 Always use `background=true` for automation to prevent timeouts:
 ```python
 terminal(
-    command="mcporter call line_proxy.run_task chat_name:\"NAME\" chat_id:\"ID\" task:\"TASK\" --timeout 3600000",
+    command="mcporter call chat_agent.run_task channel:\"line\" chat_name:\"NAME\" chat_id:\"ID\" task:\"TASK\" --timeout 3600000",
     background=true,
     notify_on_complete=true
 )
 ```
 
-### Testing Safety
-Explicitly declare timeout for Git/Tests:
-```bash
-export TIMEOUT_SET=180 && npm test
-```
-
 ## 🧩 Channel Interface (BaseChannel)
 Any new channel must implement:
 - `select_chat(name, id)`: Navigate to chat.
+- `find_chats(keyword)`: Search for chats.
+- `open_chat(name, type, id)`: Open specific chat.
 - `extract_messages(limit)`: Fetch history.
 - `send_message(text)`: Send reply.
 - `send_image(path)`: Send media.
+- `is_logged_in()`: Check login status.
+- `perform_login(email, pwd)`: Handle credentials.
 
 ## ログ & メンテナンス (Maintenance)
 - **Logs**: `~/.chat-agent/logs/{chat_name}.log`

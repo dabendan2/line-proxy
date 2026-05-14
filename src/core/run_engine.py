@@ -3,14 +3,14 @@ import asyncio
 import os
 import sys
 from playwright.async_api import async_playwright
-from channels.line import driver as line_utils
-from channels.line.driver import LineChannel
+from channels.factory import ChannelFactory
 from core.engine import ChatEngine
 from utils.locker import PIDLock
-from utils.config import CDP_PORT, DEFAULT_MODEL, ENV_PATH, OWNER_NAME
+from utils.config import CDP_PORT, DEFAULT_MODEL, OWNER_NAME
 
 async def main():
-    parser = argparse.ArgumentParser(description="LINE Proxy Engine CLI")
+    parser = argparse.ArgumentParser(description="Chat Agent Proxy Engine CLI")
+    parser.add_argument("--channel", default="line", help="Communication channel (e.g., line, messenger)")
     parser.add_argument("--chat_name", required=True, help="Name of the chat to manage")
     parser.add_argument("--chat_id", help="Unique ID of the chat")
     parser.add_argument("--task", required=True, help="Task description for the AI")
@@ -29,25 +29,40 @@ async def main():
     refactored_task = refactorer.refactor(args.task)
     print(f"DEBUG: Refactored Task:\n{refactored_task}")
 
-    lock = PIDLock(args.chat_name)
+    # Unique lock per channel and chat
+    lock_name = f"{args.channel}_{args.chat_name}"
+    lock = PIDLock(lock_name)
     if not lock.acquire():
-        print(f"Error: Chat '{args.chat_name}' is already being managed.")
+        print(f"Error: Chat '{args.chat_name}' on {args.channel} is already being managed.")
         sys.exit(1)
 
     async with async_playwright() as p:
         try:
             browser = await p.chromium.connect_over_cdp(f"http://localhost:{args.port}")
             context = browser.contexts[0]
-            page = await line_utils.get_line_page(context)
+            
+            # Platform specific page retrieval logic
+            # Future improvement: move this into ChannelFactory or BaseChannel
+            page = None
+            if args.channel.lower() == "line":
+                from channels.line import driver as line_utils
+                page = await line_utils.get_line_page(context)
+            else:
+                # Placeholder for other channels
+                # page = await messenger_utils.get_messenger_page(context)
+                print(f"Error: Channel '{args.channel}' page retrieval not implemented.")
+                lock.release()
+                sys.exit(1)
             
             if not page:
-                print("Error: LINE page not found.")
+                print(f"Error: {args.channel.upper()} page not found.")
                 lock.release()
                 sys.exit(1)
 
-            channel = LineChannel(page=page, owner_name=OWNER_NAME)
+            channel_instance = ChannelFactory.create_instance(args.channel, page=page, owner_name=OWNER_NAME)
+            
             engine = ChatEngine(
-                channel=channel,
+                channel=channel_instance,
                 chat_name=args.chat_name,
                 chat_id=args.chat_id,
                 task=refactored_task,
@@ -61,11 +76,10 @@ async def main():
                 print(f"ERROR: {final_report}")
                 sys.exit(1)
             elif final_report is None:
-                # Catch the silent failure case where run() returns None
                 print("ERROR: Engine session concluded without a final report (unexpected termination).")
                 sys.exit(1)
             else:
-                print(f"Success: Task for '{args.chat_name}' completed. Status: {final_report}")
+                print(f"Success: Task for '{args.chat_name}' on {args.channel} completed. Status: {final_report}")
         except Exception as e:
             print(f"Error: {str(e)}")
             lock.release()

@@ -6,7 +6,7 @@ from utils.config import EXTENSION_ID, HERMES_PREFIX, MESSAGE_INPUT_SELECTOR, CH
     CHATLIST_ITEM_TITLE_SELECTOR, FRIEND_LIST_ITEM_TITLE_SELECTOR, CHATLIST_ITEM_SELECTOR, CHATROOM_CONTAINER_SELECTOR, \
     MESSAGE_ITEM_SELECTOR, MESSAGE_CONTENT_SELECTOR, MESSAGE_TIME_SELECTOR, SENDER_NAME_SELECTOR, FILE_INPUT_SELECTOR
 
-from core.base_channel import BaseChannel
+from channels.base import BaseChannel
 
 class LineChannel(BaseChannel):
     def __init__(self, page: Any, owner_name: str = "Owner"):
@@ -28,6 +28,18 @@ class LineChannel(BaseChannel):
 
     async def send_image(self, image_path: str) -> bool:
         return await send_image(self.page, image_path)
+
+    async def find_chats(self, keyword: str) -> List[Dict[str, Any]]:
+        return await find_chats(self.page, keyword)
+
+    async def open_chat(self, chat_name: str, chat_type: str, chat_id: str) -> Dict[str, Any]:
+        return await open_chat(self.page, chat_name, chat_type, chat_id)
+
+    async def is_logged_in(self) -> bool:
+        return await is_logged_in(self.page)
+
+    async def perform_login(self, email: str, password: str) -> Dict[str, Any]:
+        return await perform_login(self.page, email, password)
 
 async def get_line_page(context: Any) -> Any:
     ext_url = f"chrome-extension://{EXTENSION_ID}/index.html"

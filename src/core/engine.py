@@ -6,7 +6,7 @@ import re
 import httpx
 from google import genai
 from core.history import HistoryManager
-from core.base_channel import BaseChannel
+from channels.base import BaseChannel
 from utils.config import DEFAULT_MODEL, OWNER_NAME, INTRO_PHRASE, HERMES_PREFIX, AGENT_INPUT_WAIT, \
     CONVERSATION_END_WAIT, POLL_INTERVAL, RUNTIME_TIMEOUT, TOOL_WAIT, \
     HERMES_API_URL
