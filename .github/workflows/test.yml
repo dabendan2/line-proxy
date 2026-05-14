@@ -10,12 +10,6 @@ jobs:
   test:
     runs-on: ubuntu-latest
 
-    services:
-      xvfb:
-        image: Xvfb
-        # Note: Github Actions ubuntu-latest has xvfb pre-installed. 
-        # We will use xvfb-run in the step.
-
     steps:
     - uses: actions/checkout@v4
 
