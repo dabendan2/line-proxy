@@ -5,15 +5,15 @@ import time
 import re
 import httpx
 from google import genai
-from channels.line import driver as line_utils
 from core.history import HistoryManager
+from core.base_channel import BaseChannel
 from utils.config import DEFAULT_MODEL, OWNER_NAME, INTRO_PHRASE, HERMES_PREFIX, AGENT_INPUT_WAIT, \
     CONVERSATION_END_WAIT, POLL_INTERVAL, RUNTIME_TIMEOUT, TOOL_WAIT, \
     HERMES_API_URL
 
-class LineProxyEngine:
-    def __init__(self, page: Any, chat_name: str, task: str, chat_id: Optional[str] = None, model_name: str = DEFAULT_MODEL, api_key: Optional[str] = None) -> None:
-        self.page = page
+class ChatEngine:
+    def __init__(self, channel: BaseChannel, chat_name: str, task: str, chat_id: Optional[str] = None, model_name: str = DEFAULT_MODEL, api_key: Optional[str] = None) -> None:
+        self.channel = channel
         self.target_chat = chat_name
         self.target_chat_id = chat_id
         self.task_description = task
@@ -37,8 +37,6 @@ class LineProxyEngine:
         }
 
     def _build_prompt(self, context_lines: List[str]) -> str:
-        # TDD FIX: Only consider intro "already done" if it appears in the most recent 10 messages.
-        # This ensures that for new sessions or long conversations, the agent re-introduces itself.
         recent_context = context_lines[-10:]
         intro_already_done = any("Hermes" in line and ("AI代理" in line or "AI 代理" in line or "AI Proxy" in line) 
                                  for line in recent_context)
@@ -125,12 +123,12 @@ class LineProxyEngine:
                 self.history.write_log("DEBUG: [WAIT_FOR_USER_INPUT] detected. Waiting for store response.")
             
             if result["text"] and result["text"] not in self.state["sent_messages"]:
-                await line_utils.send_message(self.page, result["text"])
+                await self.channel.send_message(result["text"])
                 self.history.write_log(f"SENT: {result['text']}")
                 self.state["sent_messages"].append(result["text"].strip())
             
             for img_path in result.get("images", []):
-                await line_utils.send_image(self.page, img_path)
+                await self.channel.send_image(img_path)
                 self.history.write_log(f"SENT IMAGE: {img_path}")
                 self.state["sent_messages"].append(f"[IMAGE: {img_path}]")
             
@@ -150,21 +148,21 @@ class LineProxyEngine:
                     "final_report": "Conversation ended."
                 })
             elif result["tool_needed"]:
-                await line_utils.send_message(self.page, f"[系統] 正在執行工具: {result['tool_needed']['tool']}...")
+                await self.channel.send_message(f"[系統] 正在執行工具: {result['tool_needed']['tool']}...")
                 try:
                     tool_output = await self.execute_hermes_tool(result['tool_needed']['tool'], result['tool_needed']['query'])
                     self.state["sent_messages"].append(f"[系統通知] 工具執行成功。結果為: {tool_output}")
-                    latest = await line_utils.extract_messages(self.page)
+                    latest = await self.channel.extract_messages()
                     await self.generate_and_send_reply(latest)
                 except Exception as e:
-                    await line_utils.send_message(self.page, f"[系統錯誤] 工具執行失敗: {str(e)}")
+                    await self.channel.send_message(f"[系統錯誤] 工具執行失敗: {str(e)}")
                 
                 self.state.update({
                     "exit_at": time.time() + TOOL_WAIT,
                     "final_report": f"TOOL_ACCESS_NEEDED: {result['tool_needed']['tool']}"
                 })
             
-            latest_msgs = await line_utils.extract_messages(self.page)
+            latest_msgs = await self.channel.extract_messages()
             if latest_msgs:
                 self.state["last_processed_msg"] = latest_msgs[-1].get("text", "")
                 
@@ -174,15 +172,14 @@ class LineProxyEngine:
     async def run(self) -> Optional[str]:
         start_time = time.time()
         self.history.write_log(f"Proxy Engine started for {self.target_chat} (ID: {self.target_chat_id})")
-        await self.page.bring_to_front()
-        selection = await line_utils.select_chat(self.page, self.target_chat, self.target_chat_id)
+        await self.channel.bring_to_front()
+        selection = await self.channel.select_chat(self.target_chat, self.target_chat_id)
         if selection.get("status") != "success":
             error_msg = f"Failed to select chat '{self.target_chat}': {selection.get('error', 'Unknown error')}"
             self.history.write_log(error_msg)
             return error_msg
         
-        msgs = await line_utils.extract_messages(self.page)
-        # TDD FIX: Proceed even if chat is empty (start of conversation)
+        msgs = await self.channel.extract_messages()
         if msgs is None: return
 
         self.state.update(self.history.rebuild_state(msgs or [], self.task_description))
@@ -197,7 +194,7 @@ class LineProxyEngine:
             if self.state.get("exit_at") and time.time() >= self.state["exit_at"]:
                 break
             try:
-                msgs = await line_utils.extract_messages(self.page)
+                msgs = await self.channel.extract_messages()
                 if msgs:
                     latest = msgs[-1]
                     is_hermes = latest.get("sender") in ["Hermes", OWNER_NAME]

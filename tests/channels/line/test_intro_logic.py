@@ -13,7 +13,7 @@ config.INTRO_PHRASE = "Hello, I am Hermes AI Proxy."
 config.OWNER_NAME = "Owner"
 config.HERMES_PREFIX = "[Hermes]"
 
-from core.engine import LineProxyEngine
+from core.engine import ChatEngine
 
 class TestEngineIntro(unittest.TestCase):
     def setUp(self):
@@ -38,13 +38,13 @@ class TestEngineIntro(unittest.TestCase):
         self.open_patcher.stop()
 
     def test_intro_needed_when_history_empty(self):
-        engine = LineProxyEngine(self.page, self.chat_name, self.task)
+        engine = ChatEngine(self.page, self.chat_name, self.task)
         context = []
         prompt = engine._build_prompt(context)
         self.assertIn("這是你與對方的第一次對話。請務必先進行自我介紹", prompt)
 
     def test_intro_not_needed_when_intro_exists_recently(self):
-        engine = LineProxyEngine(self.page, self.chat_name, self.task)
+        engine = ChatEngine(self.page, self.chat_name, self.task)
         context = [
             "[10:00 AM] Owner: Hi",
             "[10:01 AM] Hermes: Hello, I am Hermes AI Proxy. How can I help?"
@@ -53,7 +53,7 @@ class TestEngineIntro(unittest.TestCase):
         self.assertIn("你已經在之前的對話中自我介紹過了", prompt)
 
     def test_intro_needed_when_hermes_talked_but_no_intro(self):
-        engine = LineProxyEngine(self.page, self.chat_name, self.task)
+        engine = ChatEngine(self.page, self.chat_name, self.task)
         context = [
             "[10:00 AM] Owner: Hi",
             "[10:01 AM] Hermes: I am checking the weather."
@@ -65,7 +65,7 @@ class TestEngineIntro(unittest.TestCase):
     def test_intro_needed_when_intro_is_too_old(self):
         # This is what the user likely wants. If the intro was 3 hours ago, 
         # and we are starting a new session, we should probably greet again.
-        engine = LineProxyEngine(self.page, self.chat_name, self.task)
+        engine = ChatEngine(self.page, self.chat_name, self.task)
         context = [
             "[09:00 AM] Hermes: Hello, I am Hermes AI Proxy. How can I help?",
             "[09:05 AM] Owner: Ok thanks",

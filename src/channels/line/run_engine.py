@@ -4,9 +4,10 @@ import os
 import sys
 from playwright.async_api import async_playwright
 from channels.line import driver as line_utils
-from core.engine import LineProxyEngine
+from channels.line.driver import LineChannel
+from core.engine import ChatEngine
 from utils.locker import PIDLock
-from utils.config import CDP_PORT, DEFAULT_MODEL, ENV_PATH
+from utils.config import CDP_PORT, DEFAULT_MODEL, ENV_PATH, OWNER_NAME
 
 async def main():
     parser = argparse.ArgumentParser(description="LINE Proxy Engine CLI")
@@ -44,8 +45,9 @@ async def main():
                 lock.release()
                 sys.exit(1)
 
-            engine = LineProxyEngine(
-                page=page,
+            channel = LineChannel(page=page, owner_name=OWNER_NAME)
+            engine = ChatEngine(
+                channel=channel,
                 chat_name=args.chat_name,
                 chat_id=args.chat_id,
                 task=refactored_task,
@@ -69,5 +71,5 @@ async def main():
             lock.release()
             sys.exit(1)
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     asyncio.run(main())

@@ -7,7 +7,7 @@ import os
 sys.path.append(os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from channels.line import driver as line_utils
-from core.engine import LineProxyEngine
+from core.engine import ChatEngine
 
 @pytest.mark.asyncio
 async def test_extraction_order_consistency():

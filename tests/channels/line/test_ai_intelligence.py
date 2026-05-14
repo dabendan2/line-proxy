@@ -5,7 +5,7 @@ import os
 
 sys.path.append(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src"))
 from channels.line import driver as line_utils
-from core.engine import LineProxyEngine
+from core.engine import ChatEngine
 
 TEST_KEY_VALUE = "fake_test_key"
 
@@ -15,7 +15,7 @@ async def run_ai_test(task, history):
     with patch("channels.line.driver.send_message", new_callable=AsyncMock) as mock_send, \
          patch("channels.line.driver.extract_messages", new_callable=AsyncMock, return_value=[]), \
          patch("channels.line.driver.select_chat", new_callable=AsyncMock, return_value={"status": "success"}):
-        proxy = LineProxyEngine(page=mock_page, chat_name="test", task=task, api_key=TEST_KEY_VALUE)
+        proxy = ChatEngine(channel=mock_page, chat_name="test", task=task, api_key=TEST_KEY_VALUE)
         captured_full_text = []
         original_parse = proxy._parse_response
         def wrapped_parse(full_text):

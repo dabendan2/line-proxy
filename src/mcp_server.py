@@ -5,7 +5,7 @@ import json
 import subprocess
 from mcp.server.fastmcp import FastMCP
 from utils.browser import BrowserManager
-from core.engine import LineProxyEngine
+from core.engine import ChatEngine
 from channels.line import driver as line_utils
 from playwright.async_api import async_playwright
 from utils.config import CDP_PORT, DEFAULT_PROFILE, DEFAULT_MODEL, LOG_DIR, SCREENSHOT_DIR, \

@@ -6,6 +6,29 @@ from utils.config import EXTENSION_ID, HERMES_PREFIX, MESSAGE_INPUT_SELECTOR, CH
     CHATLIST_ITEM_TITLE_SELECTOR, FRIEND_LIST_ITEM_TITLE_SELECTOR, CHATLIST_ITEM_SELECTOR, CHATROOM_CONTAINER_SELECTOR, \
     MESSAGE_ITEM_SELECTOR, MESSAGE_CONTENT_SELECTOR, MESSAGE_TIME_SELECTOR, SENDER_NAME_SELECTOR, FILE_INPUT_SELECTOR
 
+from core.base_channel import BaseChannel
+
+class LineChannel(BaseChannel):
+    def __init__(self, page: Any, owner_name: str = "Owner"):
+        self.page = page
+        self.owner_name = owner_name
+
+    async def bring_to_front(self) -> None:
+        await self.page.bring_to_front()
+
+    async def select_chat(self, chat_name: str, chat_id: Optional[str] = None) -> Dict[str, Any]:
+        return await select_chat(self.page, chat_name, chat_id)
+
+    async def extract_messages(self, limit: int = 20) -> List[Dict[str, Any]]:
+        msgs = await extract_messages(self.page, owner_name=self.owner_name)
+        return msgs[-limit:] if msgs else []
+
+    async def send_message(self, text: str) -> bool:
+        return await send_message(self.page, text)
+
+    async def send_image(self, image_path: str) -> bool:
+        return await send_image(self.page, image_path)
+
 async def get_line_page(context: Any) -> Any:
     ext_url = f"chrome-extension://{EXTENSION_ID}/index.html"
     target_page = None
