@@ -23,6 +23,7 @@
 - `[AGENT_INPUT_NEEDED, reason="...", summary="..."]`：遇到障礙需{{OWNER_NAME}}決定。
 - `[CONVERSATION_ENDED, summary="..."]`：任務已完成或終止。
 - `[TOOL_ACCESS_NEEDED, tool="...", query="..."]`：需使用外部工具獲取資訊。
+- `[IMAGE, <url/path>]`：需要傳送圖片時使用（例如：分享截圖、QR Code 或參考圖片）。可與其他訊息文字並列，系統會自動處理傳送。
 
 ## 對話上下文 ##
 {{context_lines}}

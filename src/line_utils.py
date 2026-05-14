@@ -4,7 +4,7 @@ import json
 from typing import List, Dict, Optional, Any
 from config import EXTENSION_ID, HERMES_PREFIX, MESSAGE_INPUT_SELECTOR, CHATROOM_HEADER_SELECTOR, \
     CHATLIST_ITEM_TITLE_SELECTOR, FRIEND_LIST_ITEM_TITLE_SELECTOR, CHATLIST_ITEM_SELECTOR, CHATROOM_CONTAINER_SELECTOR, \
-    MESSAGE_ITEM_SELECTOR, MESSAGE_CONTENT_SELECTOR, MESSAGE_TIME_SELECTOR, SENDER_NAME_SELECTOR
+    MESSAGE_ITEM_SELECTOR, MESSAGE_CONTENT_SELECTOR, MESSAGE_TIME_SELECTOR, SENDER_NAME_SELECTOR, FILE_INPUT_SELECTOR
 
 async def get_line_page(context: Any) -> Any:
     ext_url = f"chrome-extension://{EXTENSION_ID}/index.html"
@@ -441,5 +441,71 @@ async def send_message(page: Any, text: str) -> None:
     message_area = page.locator(MESSAGE_INPUT_SELECTOR).first
     await message_area.click()
     prefixed_text = f"{HERMES_PREFIX} {text}"
-    await message_area.fill(prefixed_text)
+    # Use type instead of fill because <textarea-ex> doesn't support fill
+    await page.keyboard.type(prefixed_text)
     await page.keyboard.press("Enter")
+
+async def send_image(page: Any, image_path: str) -> None:
+    """Sends an image to the current chat by pasting it from the clipboard."""
+    import os
+    import httpx
+    import base64
+    
+    # 1. Prepare image data (Local or URL)
+    image_data_base64 = ""
+    mime_type = "image/png"
+    
+    try:
+        if image_path.startswith("http"):
+            async with httpx.AsyncClient() as client:
+                resp = await client.get(image_path)
+                resp.raise_for_status()
+                image_data_base64 = base64.b64encode(resp.content).decode("utf-8")
+                mime_type = resp.headers.get("Content-Type", "image/png")
+        else:
+            if not os.path.exists(image_path):
+                raise FileNotFoundError(f"Image file not found: {image_path}")
+            with open(image_path, "rb") as f:
+                image_data_base64 = base64.b64encode(f.read()).decode("utf-8")
+                ext = os.path.splitext(image_path)[1].lower()
+                if ext in [".jpg", ".jpeg"]: mime_type = "image/jpeg"
+                elif ext == ".gif": mime_type = "image/gif"
+                elif ext == ".webp": mime_type = "image/webp"
+
+        # 2. Inject and Paste via JS
+        # We simulate a "paste" event with a DataTransfer object containing the image file
+        print(f"DEBUG: Attempting to paste image ({mime_type})")
+        
+        script = """
+        async ({data, type}) => {
+            const res = await fetch(`data:${type};base64,${data}`);
+            const blob = await res.blob();
+            const file = new File([blob], "image.png", { type: type });
+            
+            const target = document.querySelector('.message_input, [contenteditable="true"], textarea, textarea-ex');
+            if (!target) throw new Error("Message input not found");
+            
+            const dataTransfer = new DataTransfer();
+            dataTransfer.items.add(file);
+            
+            const pasteEvent = new ClipboardEvent('paste', {
+                clipboardData: dataTransfer,
+                bubbles: true,
+                cancelable: true
+            });
+            
+            target.focus();
+            target.dispatchEvent(pasteEvent);
+            return true;
+        }
+        """
+        success = await page.evaluate(script, {"data": image_data_base64, "type": mime_type})
+        if success:
+            print("DEBUG: Paste event dispatched")
+            await asyncio.sleep(2) # Wait for processing
+            await page.keyboard.press("Enter")
+            await asyncio.sleep(1)
+        
+    except Exception as e:
+        print(f"Error in send_image: {e}")
+        raise e

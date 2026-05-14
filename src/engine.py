@@ -63,11 +63,13 @@ class LineProxyEngine:
         agent_input_match = re.search(r'\[AGENT_INPUT_NEEDED,\s*reason="([^"]+)"(?:,\s*summary="([^"]+)")?\]', full_text)
         convo_ended_match = re.search(r'\[CONVERSATION_ENDED,\s*summary="([^"]+)"\]', full_text)
         tool_match = re.search(r'\[TOOL_ACCESS_NEEDED,\s*tool="([^"]+)",\s*query="([^"]+)"\]', full_text)
+        image_matches = re.findall(r'\[IMAGE,\s*([^\]]+)\]', full_text)
         
         reply_text = full_text
         reply_text = re.sub(r'\[AGENT_INPUT_NEEDED,.*?\]', '', reply_text)
         reply_text = re.sub(r'\[CONVERSATION_ENDED,.*?\]', '', reply_text)
         reply_text = re.sub(r'\[TOOL_ACCESS_NEEDED,.*?\]', '', reply_text)
+        reply_text = re.sub(r'\[IMAGE,.*?\]', '', reply_text)
         reply_text = reply_text.replace("[WAIT_FOR_USER_INPUT]", "").strip()
 
         return {
@@ -77,7 +79,8 @@ class LineProxyEngine:
             "summary": (convo_ended_match.group(1) if convo_ended_match else 
                         agent_input_match.group(2) if (agent_input_match and agent_input_match.lastindex >= 2) else None),
             "conversation_ended": convo_ended_match is not None,
-            "tool_needed": {"tool": tool_match.group(1), "query": tool_match.group(2)} if tool_match else None
+            "tool_needed": {"tool": tool_match.group(1), "query": tool_match.group(2)} if tool_match else None,
+            "images": [img.strip() for img in image_matches]
         }
 
     async def execute_hermes_tool(self, tool_name: str, query: str) -> str:
@@ -125,6 +128,11 @@ class LineProxyEngine:
                 await line_utils.send_message(self.page, result["text"])
                 self.history.write_log(f"SENT: {result['text']}")
                 self.state["sent_messages"].append(result["text"].strip())
+            
+            for img_path in result.get("images", []):
+                await line_utils.send_image(self.page, img_path)
+                self.history.write_log(f"SENT IMAGE: {img_path}")
+                self.state["sent_messages"].append(f"[IMAGE: {img_path}]")
             
             if result["summary"]:
                 summary_report = f"\n[REPORT]\n{result['summary']}\n[/REPORT]"

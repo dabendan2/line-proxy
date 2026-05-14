@@ -40,7 +40,7 @@ RUNTIME_TIMEOUT = 3000
 
 # DOM Selectors
 SEARCH_INPUT_SELECTOR = "input[placeholder*='Search'], input[placeholder*='搜尋'], .search_input, input[type='text']"
-MESSAGE_INPUT_SELECTOR = '.message_input, [contenteditable="true"], textarea'
+MESSAGE_INPUT_SELECTOR = '.message_input, [contenteditable="true"], textarea, textarea-ex'
 CHATROOM_HEADER_SELECTOR = '[class*="chatroomHeader-module__name"]'
 CHATLIST_ITEM_TITLE_SELECTOR = '[class*="chatlistItem-module__title"]'
 FRIEND_LIST_ITEM_TITLE_SELECTOR = '[class*="friendlistItem-module__name_box"]'
@@ -52,6 +52,7 @@ MESSAGE_ITEM_SELECTOR = 'DIV.message-module__message__7odk3, [class*="messageLay
 MESSAGE_CONTENT_SELECTOR = '[class*="content_inner"], [class*="textMessageContent-module__text"]'
 MESSAGE_TIME_SELECTOR = '[class*="time"], [class*="metaInfo-module__time"]'
 SENDER_NAME_SELECTOR = '[class*="username-module__username"], [class*="sender"]'
+FILE_INPUT_SELECTOR = 'input[type="file"]'
 
 # Ensure directories exist
 os.makedirs(LOG_DIR, exist_ok=True)
