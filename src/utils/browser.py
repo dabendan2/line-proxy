@@ -111,9 +111,10 @@ class BrowserManager:
             f"chrome-extension://{self.ext_id}/index.html"
         ]
         
-        log_file = Path.home() / ".line-proxy" / "logs" / "browser_startup.log"
+        from utils.config import LOG_DIR
+        log_file = LOG_DIR / "browser_startup.log"
         log_file.parent.mkdir(parents=True, exist_ok=True)
-        with open(log_file, "a") as f:
+        with open(log_file, "a", encoding="utf-8") as f:
             f.write(f"\n--- Browser Launch at {time.ctime()} ---\n")
             subprocess.Popen(cmd, stdout=f, stderr=f)
 

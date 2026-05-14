@@ -79,6 +79,7 @@ def test_prepare_instance_cleanup_zombie(browser_manager):
          patch.object(BrowserManager, 'check_singleton_lock', return_value=None), \
          patch('pathlib.Path.mkdir'), \
          patch('subprocess.Popen'), \
+         patch('builtins.open', mock_open()), \
          patch('time.sleep'), \
          patch('httpx.get', side_effect=[Exception("Refused"), MagicMock(status_code=200, json=lambda: [{"url": "ext"}])]):
         
@@ -96,6 +97,7 @@ def test_prepare_instance_cleanup_lock(browser_manager):
          patch('pathlib.Path.unlink'), \
          patch('pathlib.Path.mkdir'), \
          patch('subprocess.Popen'), \
+         patch('builtins.open', mock_open()), \
          patch('time.sleep'), \
          patch('httpx.get', side_effect=[Exception("Refused"), MagicMock(status_code=200, json=lambda: [{"url": "ext"}])]):
         
@@ -109,6 +111,7 @@ def test_prepare_instance_failure_start(browser_manager):
          patch.object(BrowserManager, 'check_singleton_lock', return_value=None), \
          patch('pathlib.Path.mkdir'), \
          patch('subprocess.Popen'), \
+         patch('builtins.open', mock_open()), \
          patch('time.sleep'):
         
         result = browser_manager.prepare_instance()

@@ -31,7 +31,5 @@ jobs:
       env:
         GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
         TIMEOUT_SET: 180
-        LINE_OWNER_NAME: "CI-Bot"
-        LINE_DEFAULT_MODEL: "gemini-1.5-flash"
       run: |
         xvfb-run -a python run_line_tests.py
