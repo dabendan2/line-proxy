@@ -39,6 +39,35 @@ def test_refactor_stepped_logic(api_key):
     
     assert "2" in refactored and "大" in refactored and "1" in refactored and "小" in refactored
 
+def test_refactorer_proxy_role_and_audience(api_key):
+    """
+    Verify the refactorer correctly identifies the Owner as the audience 
+    for direct commands and avoids 'offering service' to the counterparty.
+    """
+    refactorer = TaskRefactorer(api_key=api_key)
+    
+    # Case 1: Direct instruction for Owner (Efficiency priority)
+    raw_task_owner = "傳送一張柴犬圖片給我看。"
+    refactored_owner = refactorer.refactor(raw_task_owner)
+    print(f"\nOwner Task:\n{refactored_owner}")
+    
+    # Should not have complex social stages
+    assert "確認接收意願" not in refactored_owner
+    assert "建立社交共識" not in refactored_owner
+    
+    # Case 2: Instruction for Counterparty (Proxy role)
+    raw_task_proxy = "傳送一張我的柴犬照片給對方。如果他覺得可愛，就問他要不要約這週末去公園。"
+    refactored_proxy = refactorer.refactor(raw_task_proxy)
+    print(f"\nProxy Task:\n{refactored_proxy}")
+    
+    # Should sound like a representative, not a service provider to the counterparty
+    forbidden_service_terms = ["我可以協助您", "我幫您搜尋", "提供搜尋服務"]
+    for term in forbidden_service_terms:
+        assert term not in refactored_proxy, f"Refactorer made Hermes sound like counterparty's assistant: {term}"
+    
+    # Should mention the owner or the proxy role
+    assert "委託人" in refactored_proxy or "代表" in refactored_proxy or "告知" in refactored_proxy
+
 def test_refactor_complex_task(api_key):
     refactorer = TaskRefactorer(api_key=api_key)
     raw_task = "詢問娜比是不是燒肉店員，是的話幫我訂 5/11 13:00，2大1小，全員忌海鮮，其中一員全素，要有插座。"
