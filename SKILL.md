@@ -11,6 +11,11 @@ A modular platform for automated communication across multiple channels (LINE, a
 
 ## ⚠️ MANDATORY EXECUTION PROTOCOL
 
+**0. Hard Constraints (Strictly Enforced):**
+- **NO BYPASS**: Never use `--no-verify` or `-n` with Git. All commits MUST pass tests.
+- **TIMEOUT REQUIRED**: Always set `export TIMEOUT_SET=180` (or higher) for any command triggering tests.
+- **SSOT**: If a test fails, FIX the code or environment. Do not bypass the safeguard.
+
 **1. Environment Configuration:**
 Ensure variables are set in `~/.hermes/.env`:
 - `LINE_OWNER_NAME`: Your display name for AI attribution.

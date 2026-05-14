@@ -4,7 +4,7 @@ import psutil
 
 class PIDLock:
     def __init__(self, chat_name):
-        lock_dir = os.path.expanduser("~/.line-proxy/locks")
+        lock_dir = os.path.expanduser("~/.chat-agent/locks")
         os.makedirs(lock_dir, exist_ok=True)
         # Use sanitized chat name for filename
         safe_name = "".join([c if c.isalnum() else "_" for c in chat_name])
