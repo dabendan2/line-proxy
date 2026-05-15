@@ -27,7 +27,7 @@ async def get_ai_parsed_response(task, history):
          patch("channels.line.driver.select_chat", new_callable=AsyncMock, return_value={"status": "success"}):
         mock_channel = AsyncMock(); proxy = ChatEngine(channel=mock_channel, chat_name="test", task=task, api_key=TEST_KEY_VALUE)
         context = proxy.history.get_full_context(history, [])
-        prompt = proxy._build_prompt(context)
+        prompt = proxy._build_prompt(history, context)
         response = proxy.client.models.generate_content(model=proxy.model_name, contents=prompt)
         raw_text = str(getattr(response, 'text', '')).strip()
         parsed = proxy._parse_response(raw_text)

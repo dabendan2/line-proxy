@@ -40,7 +40,7 @@ class TestEngineIntro(unittest.TestCase):
     def test_intro_needed_when_history_empty(self):
         engine = ChatEngine(self.page, self.chat_name, self.task)
         context = []
-        prompt = engine._build_prompt(context)
+        prompt = engine._build_prompt([], context)
         self.assertIn("這是你與對方的第一次對話。請務必先進行自我介紹", prompt)
 
     def test_intro_not_needed_when_intro_exists_recently(self):
@@ -49,7 +49,7 @@ class TestEngineIntro(unittest.TestCase):
             "[10:00 AM] Owner: Hi",
             "[10:01 AM] Hermes: Hello, I am Hermes AI Proxy. How can I help?"
         ]
-        prompt = engine._build_prompt(context)
+        prompt = engine._build_prompt([], context)
         self.assertIn("你已經在之前的對話中自我介紹過了", prompt)
 
     def test_intro_needed_when_hermes_talked_but_no_intro(self):
@@ -58,7 +58,7 @@ class TestEngineIntro(unittest.TestCase):
             "[10:00 AM] Owner: Hi",
             "[10:01 AM] Hermes: I am checking the weather."
         ]
-        prompt = engine._build_prompt(context)
+        prompt = engine._build_prompt([], context)
         # CURRENT BEHAVIOR: It should still intro because "AI代理" (or "AI Proxy") is missing
         self.assertIn("這是你與對方的第一次對話。請務必先進行自我介紹", prompt)
 
@@ -75,7 +75,7 @@ class TestEngineIntro(unittest.TestCase):
             context.append(f"[10:{i:02d} AM] Owner: message {i}")
             
         # Now context has 13 messages, the intro is at index 0 (not in [-10:])
-        prompt = engine._build_prompt(context)
+        prompt = engine._build_prompt([], context)
         self.assertIn("這是你與對方的第一次對話。請務必先進行自我介紹", prompt)
 
 if __name__ == '__main__':

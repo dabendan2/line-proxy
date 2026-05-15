@@ -36,7 +36,7 @@ class ChatEngine:
             "final_report": None
         }
 
-    def _build_prompt(self, context_lines: List[str]) -> str:
+    def _build_prompt(self, msgs: List[Dict[str, Any]], context_lines: List[str]) -> str:
         recent_context = context_lines[-10:]
         intro_already_done = any("Hermes" in line and ("AI代理" in line or "AI 代理" in line or "AI Proxy" in line) 
                                  for line in recent_context)
@@ -45,6 +45,29 @@ class ChatEngine:
                              if intro_already_done else 
                              f"這是你與對方的第一次對話。請務必先進行自我介紹，開場白應固定為：『{INTRO_PHRASE}』。")
         
+        # 提取可用檔案資訊 (僅限該對話且 24 小時內)
+        available_files = []
+        now = time.time()
+        one_day_sec = 24 * 60 * 60
+        
+        for m in msgs:
+            media = m.get("media")
+            if media and media.get("local_path"):
+                path = media["local_path"]
+                if os.path.exists(path):
+                    # 檢查檔案時間
+                    mtime = os.path.getmtime(path)
+                    if (now - mtime) <= one_day_sec:
+                        ftype = media.get("type", "file")
+                        fname = media.get("name") or os.path.basename(path)
+                        available_files.append(f"- {ftype}: {fname}, 路徑: {path}")
+        
+        file_context = ""
+        if available_files:
+            file_context = "\n## 可用的本地檔案資源 ##\n" + "\n".join(available_files) + "\n"
+            file_context += "你可以使用 [TOOL_ACCESS_NEEDED, tool=\"terminal\", query=\"...\"] 來操作這些檔案（如解壓縮、安裝套件、列出目錄）。\n"
+            file_context += "如果是圖片，你可以使用 [TOOL_ACCESS_NEEDED, tool=\"vision_analyze\", query=\"...\"] 並傳入圖片路徑來分析內容。\n"
+
         prompt = self.system_prompt_template
         prompt = prompt.replace("{{task_description}}", self.task_description)
         prompt = prompt.replace("{{intro_instruction}}", intro_instruction)
@@ -53,6 +76,7 @@ class ChatEngine:
         prompt = prompt.replace("{{INTRO_PHRASE}}", INTRO_PHRASE)
         prompt = prompt.replace("{{OWNER_NAME}}", OWNER_NAME)
         prompt = prompt.replace("{{context_lines}}", "\n".join(context_lines))
+        prompt = prompt.replace("{{file_context}}", file_context) # 加入檔案上下文
         
         return prompt
 
@@ -114,7 +138,7 @@ class ChatEngine:
     async def generate_and_send_reply(self, msgs: List[Dict[str, Any]]) -> None:
         try:
             context_lines = self.history.get_full_context(msgs, self.state["sent_messages"])
-            prompt = self._build_prompt(context_lines)
+            prompt = self._build_prompt(msgs, context_lines)
             
             response = self.client.models.generate_content(model=self.model_name, contents=prompt)
             result = self._parse_response(str(getattr(response, 'text', '')).strip())

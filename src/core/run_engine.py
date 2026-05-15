@@ -2,6 +2,14 @@ import argparse
 import asyncio
 import os
 import sys
+
+# Automatically add src/ to sys.path to ensure absolute imports work regardless of execution location
+# This project expects 'src' to be the root for imports like 'from channels...'
+current_dir = os.path.dirname(os.path.abspath(__file__))
+src_root = os.path.abspath(os.path.join(current_dir, ".."))
+if src_root not in sys.path:
+    sys.path.insert(0, src_root)
+
 from playwright.async_api import async_playwright
 from channels.factory import ChannelFactory
 from core.engine import ChatEngine

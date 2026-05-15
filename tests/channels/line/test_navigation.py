@@ -106,6 +106,7 @@ async def test_select_chat_prioritizes_private_on_name_collision():
 async def test_select_chat_idempotency():
     """Test that select_chat doesn't re-open if already on the chat."""
     mock_page = MagicMock()
+    mock_page.evaluate = AsyncMock(return_value="u123")
     mock_page.locator = MagicMock()
     
     # Mock is_logged_in

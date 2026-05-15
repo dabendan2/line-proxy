@@ -1,5 +1,13 @@
 import os
 import sys
+import asyncio
+
+# Automatically add current directory to sys.path to ensure absolute imports work
+# This allows calling the script from the project root without setting PYTHONPATH
+current_dir = os.path.dirname(os.path.abspath(__file__))
+if current_dir not in sys.path:
+    sys.path.insert(0, current_dir)
+
 from typing import List, Dict, Any, Optional
 import json
 import subprocess
@@ -218,12 +226,10 @@ async def run_task(chat_name: str, task: str, channel: str = "line", chat_id: Op
     if chat_id:
         cmd.extend(["--chat_id", chat_id])
     try:
-        # Set working directory and PYTHONPATH to the src folder so imports like 'from channels...' work
+        # Working directory set to src so internal logic can find local resources
         working_dir = os.path.dirname(__file__)
-        env = os.environ.copy()
-        env["PYTHONPATH"] = working_dir + (os.pathsep + env.get("PYTHONPATH", "") if env.get("PYTHONPATH") else "")
         
-        result = subprocess.run(cmd, capture_output=True, text=True, check=False, cwd=working_dir, env=env)
+        result = subprocess.run(cmd, capture_output=True, text=True, check=False, cwd=working_dir)
         return json.dumps({
             "status": "completed" if result.returncode == 0 else "failed", 
             "channel": channel,

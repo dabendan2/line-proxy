@@ -5,13 +5,15 @@ from dotenv import load_dotenv
 # Paths
 DATA_DIR = Path.home() / ".chat-agent"
 LOG_DIR = DATA_DIR / "logs"
+FILE_CACHE_DIR = DATA_DIR / "file-cache"
 SCREENSHOT_DIR = DATA_DIR
 ENV_PATH = Path.home() / ".hermes" / ".env"
 
-# Load environment variables
-if ENV_PATH.exists():
-    load_dotenv(dotenv_path=ENV_PATH)
+# ... (其餘不變)
 
+# Ensure directories exist
+os.makedirs(LOG_DIR, exist_ok=True)
+os.makedirs(FILE_CACHE_DIR, exist_ok=True)
 # Browser Configuration
 CDP_PORT = 9222
 DEFAULT_PROFILE = "line_booking_session"

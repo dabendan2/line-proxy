@@ -29,6 +29,7 @@ async def run_ai_test(task, history):
 @pytest.mark.asyncio
 async def test_strict_title_matching_already_selected():
     mock_page = MagicMock()
+    mock_page.evaluate = AsyncMock(return_value="u123")
     mock_header = AsyncMock()
     mock_header.is_visible = AsyncMock(return_value=True)
     mock_header.inner_text = AsyncMock(return_value="dabendan.test")
