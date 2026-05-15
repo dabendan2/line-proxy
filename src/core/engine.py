@@ -29,15 +29,80 @@ class ChatEngine:
         with open(prompt_path, "r", encoding="utf-8") as f:
             self.system_prompt_template = f.read()
             
+        analyzer_path = os.path.join(os.path.dirname(__file__), "prompts/analyzer.md")
+        with open(analyzer_path, "r", encoding="utf-8") as f:
+            self.analyzer_prompt_template = f.read()
+            
         self.state = {
             "sent_messages": [], 
             "last_processed_msg": "", 
             "exit_at": None, 
-            "final_report": None
+            "final_report": None,
+            "service_target": "對方", # 預設值
+            "task_start_time": None
         }
 
+    async def _generate_image_locally(self, query: str) -> str:
+        """使用本地 Imagen 4 SDK 生成圖片"""
+        self.history.write_log(f"LOCAL_IMAGE_GEN: Generating image for query: {query}")
+        
+        # 建立存檔路徑
+        timestamp = time.strftime("%Y%m%d_%H%M")
+        import hashlib
+        hash_str = hashlib.md5(query.encode()).hexdigest()[:4]
+        filename = f"image_{timestamp}_{hash_str}.png"
+        
+        safe_chat_id = self.target_chat_id or self.target_chat.replace(" ", "_")
+        cache_dir = os.path.expanduser(f"~/.chat-agent/file-cache/{safe_chat_id}")
+        os.makedirs(cache_dir, exist_ok=True)
+        file_path = os.path.join(cache_dir, filename)
+        
+        # 調用 SDK
+        response = self.client.models.generate_images(
+            model="imagen-4.0-fast-generate-001",
+            prompt=query
+        )
+        
+        # 儲存圖片
+        response.generated_images[0].image.save(file_path)
+        self.history.write_log(f"LOCAL_IMAGE_GEN: Saved to {file_path}")
+        
+        return file_path
+
+    async def analyze_context(self, context_lines: List[str]) -> None:
+        """分析對話上下文，識別服務對象與任務起始點"""
+        prompt = self.analyzer_prompt_template
+        prompt = prompt.replace("{{task_description}}", self.task_description)
+        prompt = prompt.replace("{{context_lines}}", "\n".join(context_lines))
+        prompt = prompt.replace("{{OWNER_NAME}}", OWNER_NAME)
+
+        try:
+            response = self.client.models.generate_content(model=self.model_name, contents=prompt)
+            import json
+            # 清理 Markdown 代碼塊標記
+            clean_text = re.sub(r"```json\s*(.*?)\s*```", r"\1", response.text, flags=re.DOTALL).strip()
+            data = json.loads(clean_text)
+            
+            if data.get("service_target"):
+                self.state["service_target"] = data["service_target"]
+            if data.get("task_start_time"):
+                self.state["task_start_time"] = data["task_start_time"]
+            
+            self.history.write_log(f"ANALYSIS: target='{self.state['service_target']}', start='{self.state['task_start_time']}'")
+        except Exception as e:
+            self.history.write_log(f"Warning: Failed to analyze context: {e}")
+        
     def _build_prompt(self, msgs: List[Dict[str, Any]], context_lines: List[str]) -> str:
-        recent_context = context_lines[-10:]
+        # 根據 task_start_time 裁切上下文，只保留任務開始後的對話
+        pruned_context = context_lines
+        if self.state.get("task_start_time"):
+            start_marker = self.state["task_start_time"]
+            for i, line in enumerate(context_lines):
+                if start_marker in line:
+                    pruned_context = context_lines[i:]
+                    break
+
+        recent_context = pruned_context[-10:]
         intro_already_done = any("Hermes" in line and ("AI代理" in line or "AI 代理" in line or "AI Proxy" in line) 
                                  for line in recent_context)
         
@@ -69,14 +134,19 @@ class ChatEngine:
             file_context += "如果是圖片，你可以使用 [TOOL_ACCESS_NEEDED, tool=\"vision_analyze\", query=\"...\"] 並傳入圖片路徑來分析內容。\n"
 
         prompt = self.system_prompt_template
+        
+        # 注入服務對象到任務背景
+        target_display = f"**{self.state['service_target']}**"
+        prompt = prompt.replace("完成以下任務計畫", f"為 {target_display} 完成以下任務計畫")
+        
         prompt = prompt.replace("{{task_description}}", self.task_description)
         prompt = prompt.replace("{{intro_instruction}}", intro_instruction)
         prompt = prompt.replace("{{HERMES_PREFIX}}", HERMES_PREFIX)
         prompt = prompt.replace("{{etiquette}}", self.etiquette)
         prompt = prompt.replace("{{INTRO_PHRASE}}", INTRO_PHRASE)
         prompt = prompt.replace("{{OWNER_NAME}}", OWNER_NAME)
-        prompt = prompt.replace("{{context_lines}}", "\n".join(context_lines))
-        prompt = prompt.replace("{{file_context}}", file_context) # 加入檔案上下文
+        prompt = prompt.replace("{{context_lines}}", "\n".join(pruned_context))
+        prompt = prompt.replace("{{file_context}}", file_context) 
         
         return prompt
 
@@ -136,62 +206,84 @@ class ChatEngine:
             return resp.json()["choices"][0]["message"]["content"]
 
     async def generate_and_send_reply(self, msgs: List[Dict[str, Any]]) -> None:
-        try:
-            context_lines = self.history.get_full_context(msgs, self.state["sent_messages"])
-            prompt = self._build_prompt(msgs, context_lines)
-            
-            response = self.client.models.generate_content(model=self.model_name, contents=prompt)
-            result = self._parse_response(str(getattr(response, 'text', '')).strip())
-            
-            if result["is_waiting"]:
-                self.history.write_log("DEBUG: [WAIT_FOR_USER_INPUT] detected. Waiting for store response.")
-            
-            if result["text"] and result["text"] not in self.state["sent_messages"]:
-                await self.channel.send_message(result["text"])
-                self.history.write_log(f"SENT: {result['text']}")
-                self.state["sent_messages"].append(result["text"].strip())
-            
-            for img_path in result.get("images", []):
-                await self.channel.send_image(img_path)
-                self.history.write_log(f"SENT IMAGE: {img_path}")
-                self.state["sent_messages"].append(f"[IMAGE: {img_path}]")
-            
-            if result["summary"]:
-                summary_report = f"\n[REPORT]\n{result['summary']}\n[/REPORT]"
-                self.history.write_log(f"--- TASK SUMMARY ---\n{result['summary']}\n--------------------")
-                print(summary_report)
+        """核心回覆邏輯：生成 AI 回應並處理工具調用"""
+        max_turns = 3  # 限制單次回覆循環內的工具調用次數，防止無限遞迴
+        current_turn = 0
+        
+        while current_turn < max_turns:
+            try:
+                context_lines = self.history.get_full_context(msgs, self.state["sent_messages"])
+                prompt = self._build_prompt(msgs, context_lines)
+                
+                response = self.client.models.generate_content(model=self.model_name, contents=prompt)
+                result = self._parse_response(str(getattr(response, 'text', '')).strip())
+                
+                # 處理文字訊息
+                if result["text"] and result["text"] not in self.state["sent_messages"]:
+                    await self.channel.send_message(result["text"])
+                    self.history.write_log(f"SENT: {result['text']}")
+                    self.state["sent_messages"].append(result["text"].strip())
+                
+                # 處理圖片發送
+                for img_path in result.get("images", []):
+                    await self.channel.send_image(img_path)
+                    self.history.write_log(f"SENT IMAGE: {img_path}")
+                    self.state["sent_messages"].append(f"[IMAGE: {img_path}]")
+                
+                # 更新最後處理狀態
+                latest_msgs = await self.channel.extract_messages()
+                if latest_msgs:
+                    self.state["last_processed_msg"] = latest_msgs[-1].get("text", "")
+                
+                if result["summary"]:
+                    summary_report = f"\n[REPORT]\n{result['summary']}\n[/REPORT]"
+                    self.history.write_log(f"--- TASK SUMMARY ---\n{result['summary']}\n--------------------")
+                    print(summary_report)
 
-            if result["agent_input_needed"]:
-                self.state.update({
-                    "exit_at": time.time() + AGENT_INPUT_WAIT,
-                    "final_report": f"AGENT_INPUT_NEEDED: {result['agent_input_needed']}"
-                })
-            elif result["conversation_ended"]:
-                self.state.update({
-                    "exit_at": time.time() + CONVERSATION_END_WAIT,
-                    "final_report": "Conversation ended."
-                })
-            elif result["tool_needed"]:
-                await self.channel.send_message(f"[系統] 正在執行工具: {result['tool_needed']['tool']}...")
-                try:
-                    tool_output = await self.execute_hermes_tool(result['tool_needed']['tool'], result['tool_needed']['query'])
-                    self.state["sent_messages"].append(f"[系統通知] 工具執行成功。結果為: {tool_output}")
-                    latest = await self.channel.extract_messages()
-                    await self.generate_and_send_reply(latest)
-                except Exception as e:
-                    await self.channel.send_message(f"[系統錯誤] 工具執行失敗: {str(e)}")
+                # 判定後續行為
+                if result["is_waiting"]:
+                    self.history.write_log("DEBUG: [WAIT_FOR_USER_INPUT] detected. Waiting for store response.")
+                    break  # 跳出循環，等待外部輪詢
                 
-                self.state.update({
-                    "exit_at": time.time() + TOOL_WAIT,
-                    "final_report": f"TOOL_ACCESS_NEEDED: {result['tool_needed']['tool']}"
-                })
-            
-            latest_msgs = await self.channel.extract_messages()
-            if latest_msgs:
-                self.state["last_processed_msg"] = latest_msgs[-1].get("text", "")
+                if result["agent_input_needed"]:
+                    self.state.update({
+                        "exit_at": time.time() + AGENT_INPUT_WAIT,
+                        "final_report": f"AGENT_INPUT_NEEDED: {result['agent_input_needed']}"
+                    })
+                    break
                 
-        except Exception as e:
-            self.history.write_log(f"Error in generate_and_send_reply: {e}")
+                if result["conversation_ended"]:
+                    self.state.update({
+                        "exit_at": time.time() + CONVERSATION_END_WAIT,
+                        "final_report": "Conversation ended."
+                    })
+                    break
+                
+                if result["tool_needed"]:
+                    tool_name = result["tool_needed"]["tool"]
+                    query = result["tool_needed"]["query"]
+                    await self.channel.send_message(f"[系統] 正在執行工具: {tool_name}...")
+                    
+                    try:
+                        if tool_name == "image_gen":
+                            tool_output = await self._generate_image_locally(query)
+                        else:
+                            tool_output = await self.execute_hermes_tool(tool_name, query)
+                            
+                        self.state["sent_messages"].append(f"[系統通知] 工具執行成功。結果為: {tool_output}")
+                        # 工具執行完後，將 current_turn + 1 並繼續循環（讓 AI 看到工具結果）
+                        current_turn += 1
+                        msgs = await self.channel.extract_messages()
+                        continue 
+                    except Exception as e:
+                        await self.channel.send_message(f"[系統錯誤] 工具執行失敗: {str(e)}")
+                        break
+                
+                break # 無工具需求也無特定狀態，正常結束
+                
+            except Exception as e:
+                self.history.write_log(f"Error in generate_and_send_reply: {e}")
+                break
 
     async def run(self) -> Optional[str]:
         start_time = time.time()
@@ -205,6 +297,9 @@ class ChatEngine:
         
         msgs = await self.channel.extract_messages()
         if msgs is None: return
+
+        context_lines = self.history.get_full_context(msgs, [])
+        await self.analyze_context(context_lines)
 
         self.state.update(self.history.rebuild_state(msgs or [], self.task_description))
         await self.generate_and_send_reply(msgs or [])

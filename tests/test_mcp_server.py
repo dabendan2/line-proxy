@@ -101,7 +101,7 @@ async def test_get_line_messages_tool():
 @pytest.mark.asyncio
 async def test_run_task_tool():
     with patch("subprocess.run") as mock_run, \
-         patch.dict(os.environ, {"GOOGLE_API_KEY": "fake_key"}):
+         patch.dict(os.environ, {"GOOGLE_API_KEY": "fake_key", "ONE_HOUR_TIMEOUT_SET_CONFIRMED": "YES"}):
         mock_run.return_value.returncode = 0
         mock_run.return_value.stdout = "task completed successfully"
         mock_run.return_value.stderr = ""

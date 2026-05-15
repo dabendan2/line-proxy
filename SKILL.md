@@ -57,10 +57,10 @@ src/
 ## 🚀 Core Implementation Patterns
 
 ### Long-Running Tasks
-Always use `background=true` for automation to prevent timeouts:
+Always use `background=true` for automation to prevent timeouts. The `run_task` tool requires the `ONE_HOUR_TIMEOUT_SET_CONFIRMED=YES` environment variable to be set:
 ```python
 terminal(
-    command="mcporter call chat_agent.run_task channel:\"line\" chat_name:\"NAME\" chat_id:\"ID\" task:\"TASK\" --timeout 3600000",
+    command="export ONE_HOUR_TIMEOUT_SET_CONFIRMED=YES && mcporter call chat_agent.run_task channel:\"line\" chat_name:\"NAME\" chat_id:\"ID\" task:\"TASK\" --timeout 3600000",
     background=true,
     notify_on_complete=true
 )

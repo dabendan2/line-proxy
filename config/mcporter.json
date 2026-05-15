@@ -1,10 +1,7 @@
 {
   "mcpServers": {
     "chat_agent": {
-      "command": "/home/ubuntu/chat-agent/venv/bin/python3",
-      "args": [
-        "/home/ubuntu/chat-agent/src/mcp_server.py"
-      ]
+      "command": "/home/ubuntu/chat-agent/venv/bin/python3 /home/ubuntu/chat-agent/src/mcp_server.py"
     }
   }
 }

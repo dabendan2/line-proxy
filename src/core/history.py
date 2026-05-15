@@ -21,6 +21,9 @@ class HistoryManager:
                     if " SENT: " in line:
                         text = line.split(" SENT: ", 1)[1].strip()
                         sent_messages.append(text)
+                    elif " SENT IMAGE: " in line:
+                        text = line.split(" SENT IMAGE: ", 1)[1].strip()
+                        sent_messages.append(f"[IMAGE: {text}]")
 
         for m in msgs:
             text = m["text"].strip()

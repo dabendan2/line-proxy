@@ -9,6 +9,9 @@ FILE_CACHE_DIR = DATA_DIR / "file-cache"
 SCREENSHOT_DIR = DATA_DIR
 ENV_PATH = Path.home() / ".hermes" / ".env"
 
+# Load environment variables
+load_dotenv(ENV_PATH)
+
 # ... (其餘不變)
 
 # Ensure directories exist

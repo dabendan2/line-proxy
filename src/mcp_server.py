@@ -218,6 +218,21 @@ async def get_messages(chat_name: str, limit: int = 10, chat_id: Optional[str] =
 @mcp.tool()
 async def run_task(chat_name: str, task: str, channel: str = "line", chat_id: Optional[str] = None, port: int = CDP_PORT, model: str = DEFAULT_MODEL) -> str:
     """Runs an AI-driven task for a specific chat on a specified channel."""
+    # Safety Check: Require confirmation for long-running task awareness
+    if not os.environ.get("ONE_HOUR_TIMEOUT_SET_CONFIRMED"):
+        chat_id_arg = f" chat_id:\"{chat_id}\"" if chat_id else ""
+        error_msg = (
+            "Error: ONE_HOUR_TIMEOUT_SET_CONFIRMED not set in environment.\n"
+            "This tool can run for up to 1 hour. AI Agents MUST set a 1-hour timeout and use background mode.\n"
+            "Example usage via terminal tool:\n"
+            "terminal(\n"
+            f"    command=\"export ONE_HOUR_TIMEOUT_SET_CONFIRMED=YES && mcporter call chat_agent.run_task channel:\\\"{channel}\\\" chat_name:\\\"{chat_name}\\\"{chat_id_arg} task:\\\"{task}\\\" --timeout 3600000\",\n"
+            "    background=true,\n"
+            "    notify_on_complete=true\n"
+            ")"
+        )
+        return error_msg
+
     api_key = os.environ.get("GOOGLE_API_KEY")
     if not api_key: return "Error: GOOGLE_API_KEY not found."
     venv_python = sys.executable
