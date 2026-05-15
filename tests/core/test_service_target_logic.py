@@ -84,3 +84,33 @@ async def test_analyze_context_group_target(mock_engine):
     await mock_engine.analyze_context(context_lines)
     
     assert mock_engine.state["service_target"] == "全體成員"
+
+@pytest.mark.asyncio
+async def test_analyze_context_with_restart_intent_already_fulfilled(mock_engine):
+    """
+    Test that analyze_context correctly handles a scenario where a restart intent
+    has already been fulfilled (is_started=True).
+    """
+    mock_client = mock_engine.client
+    mock_response = MagicMock()
+    # Simulate LLM identifying that the "Restart" action was already done at 11:15 PM
+    mock_response.text = '{"service_target": "俊羽", "task_start_time": "[11:15 PM]", "is_started": true}'
+    mock_client.models.generate_content.return_value = mock_response
+    
+    context_lines = [
+        "[8:48 PM] User: 黑貓米克斯寫實",
+        "[11:15 PM] Hermes: 您好，我是 俊羽 的 AI 代理。請問接下來您想生成什麼樣的圖片呢？"
+    ]
+    await mock_engine.analyze_context(context_lines)
+    
+    assert mock_engine.state["task_start_time"] == "[11:15 PM]"
+    
+    # Verify pruning logic in build_prompt
+    msgs = []
+    prompt = mock_engine._build_prompt(msgs, context_lines)
+    
+    # The prompt should start from the 11:15 PM message
+    assert "[8:48 PM] User: 黑貓米克斯寫實" not in prompt
+    assert "[11:15 PM] Hermes: 您好，我是 俊羽 的 AI 代理" in prompt
+    # And because it's in the history, intro_already_done should be true
+    assert "你已經在之前的對話中自我介紹過了" in prompt

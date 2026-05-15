@@ -43,13 +43,14 @@ class ChatEngine:
         }
 
     async def _generate_image_locally(self, query: str) -> str:
-        """使用本地 Imagen 4 SDK 生成圖片"""
-        self.history.write_log(f"LOCAL_IMAGE_GEN: Generating image for query: {query}")
+        """使用本地 Imagen 4 Standard SDK 生成圖片"""
+        model_id = "imagen-4.0-generate-001"
+        self.history.write_log(f"LOCAL_IMAGE_GEN: Generating image using {model_id} for query: {query}")
         
         # 建立存檔路徑
         timestamp = time.strftime("%Y%m%d_%H%M")
         import hashlib
-        hash_str = hashlib.md5(query.encode()).hexdigest()[:4]
+        hash_str = hashlib.md5(f"{query}_{model_id}".encode()).hexdigest()[:4]
         filename = f"image_{timestamp}_{hash_str}.png"
         
         safe_chat_id = self.target_chat_id or self.target_chat.replace(" ", "_")
@@ -59,7 +60,7 @@ class ChatEngine:
         
         # 調用 SDK
         response = self.client.models.generate_images(
-            model="imagen-4.0-fast-generate-001",
+            model=model_id,
             prompt=query
         )
         

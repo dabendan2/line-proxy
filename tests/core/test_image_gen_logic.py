@@ -61,5 +61,35 @@ async def test_local_image_generation_execution():
             assert "image_20260515_2110" in path
             engine.client.models.generate_images.assert_called_once()
             args, kwargs = engine.client.models.generate_images.call_args
-            assert kwargs['model'] == "imagen-4.0-fast-generate-001"
+            assert kwargs['model'] == "imagen-4.0-generate-001"
             assert kwargs['prompt'] == "cat"
+
+@pytest.mark.asyncio
+async def test_image_gen_tag_and_notification():
+    """驗證當解析到 image_gen 標籤時，會發送系統通知並調用本地邏輯 (合併自 test_image_gen_tag.py)"""
+    mock_channel = AsyncMock(spec=BaseChannel)
+    mock_channel.extract_messages.return_value = [
+        {"sender": "User", "text": "幫我畫一張橘貓"}
+    ]
+    
+    with patch("core.engine.HistoryManager") as MockHistory, \
+         patch("google.genai.Client") as MockGenAI:
+        
+        mock_history = MockHistory.return_value
+        mock_history.get_full_context.return_value = ["User: 幫我畫一張橘貓"]
+        
+        engine = ChatEngine(mock_channel, "TestChat", "生成圖片", api_key="fake")
+        
+        mock_resp_tool = MagicMock()
+        mock_resp_tool.text = '[TOOL_ACCESS_NEEDED, tool="image_gen", query="orange cat"]'
+        mock_resp_done = MagicMock()
+        mock_resp_done.text = '[CONVERSATION_ENDED, summary="done"]'
+        
+        engine.client.models.generate_content.side_effect = [mock_resp_tool, mock_resp_done]
+        
+        with patch.object(engine, '_generate_image_locally', new_callable=AsyncMock) as mock_local_gen:
+            mock_local_gen.return_value = "/path/to/img.png"
+            await engine.generate_and_send_reply(mock_channel.extract_messages.return_value)
+            
+            mock_local_gen.assert_called_with("orange cat")
+            mock_channel.send_message.assert_any_call("[系統] 正在執行工具: image_gen...")
