@@ -31,11 +31,11 @@ async def test_engine_runtime_timeout_logging():
         report = await engine.run()
         
         # 1. Check if report is returned correctly
-        assert report == "[RESTART_REQUIRED] Runtime limit reached."
+        assert report == "[SILENT_RESTART_NEEDED] Runtime limit reached."
         
         # 2. Check if it was logged
         log_calls = [call[0][0] for call in mock_log.call_args_list]
-        assert any("[RESTART_REQUIRED]" in str(msg) for msg in log_calls)
+        assert any("[SILENT_RESTART_NEEDED]" in str(msg) for msg in log_calls)
         assert any("Session concluded." in str(msg) for msg in log_calls)
 
 @pytest.mark.asyncio
@@ -62,7 +62,7 @@ async def test_run_engine_cli_reports_timeout(capsys):
         mock_line_utils.get_line_page = AsyncMock(return_value=MagicMock())
         with patch.dict("sys.modules", {"channels.line": MagicMock(driver=mock_line_utils)}):
             mock_instance = mock_engine_class.return_value
-            mock_instance.run = AsyncMock(return_value="[RESTART_REQUIRED] Runtime limit reached.")
+            mock_instance.run = AsyncMock(return_value="[SILENT_RESTART_NEEDED] Runtime limit reached.")
             
             with pytest.raises(SystemExit) as excinfo:
                 await main()
@@ -71,4 +71,38 @@ async def test_run_engine_cli_reports_timeout(capsys):
             
     captured = capsys.readouterr()
     assert "ERROR" in captured.out
-    assert "[RESTART_REQUIRED]" in captured.out
+    assert "[SILENT_RESTART_NEEDED]" in captured.out
+
+@pytest.mark.asyncio
+async def test_check_spamming_visibility():
+    """
+    Verify that technical messages starting with [系統] or [TOOL] 
+    do NOT count towards the spamming quota.
+    """
+    mock_channel = AsyncMock()
+    engine = ChatEngine(mock_channel, "test_chat", "test_task", api_key="test_key")
+    
+    # Cases that SHOULD NOT trigger spamming (limit is 3)
+    msgs_ok = [
+        {"sender": "Hermes", "text": "Msg 1"},
+        {"sender": "Hermes", "text": "[系統] 工具執行中..."},
+        {"sender": "Hermes", "text": "[TOOL] Query results..."},
+        {"sender": "Hermes", "text": "Msg 2"},
+        # Total visible Hermes messages: 2
+    ]
+    # Should not raise
+    engine._check_spamming(msgs_ok)
+
+    # Case that SHOULD trigger spamming
+    msgs_bad = [
+        {"sender": "Hermes", "text": "Msg 1"},
+        {"sender": "Hermes", "text": "[系統] Hidden"},
+        {"sender": "Hermes", "text": "Msg 2"},
+        {"sender": "Hermes", "text": "[TOOL] Hidden"},
+        {"sender": "Hermes", "text": "Msg 3"},
+        # Total visible Hermes messages: 3 -> Should raise
+    ]
+    with pytest.raises(Exception) as excinfo:
+        engine._check_spamming(msgs_bad)
+    assert "[OWNER_INPUT_NEEDED] spamming user is not allowed" in str(excinfo.value)
+    assert "limit: 3" in str(excinfo.value)

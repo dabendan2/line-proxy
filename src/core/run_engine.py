@@ -80,7 +80,7 @@ async def main():
             engine.lock = lock
             
             final_report = await engine.run()
-            if final_report and ("[RESTART_REQUIRED]" in final_report or "Error" in final_report or "Failed" in final_report):
+            if final_report and ("[SILENT_RESTART_NEEDED]" in final_report or "[OWNER_INPUT_NEEDED]" in final_report or "Error" in final_report or "Failed" in final_report):
                 print(f"ERROR: {final_report}")
                 sys.exit(1)
             elif final_report is None:

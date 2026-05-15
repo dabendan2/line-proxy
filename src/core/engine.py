@@ -7,7 +7,7 @@ import httpx
 from google import genai
 from core.history import HistoryManager
 from channels.base import BaseChannel
-from utils.config import DEFAULT_MODEL, OWNER_NAME, INTRO_PHRASE, HERMES_PREFIX, AGENT_INPUT_WAIT, \
+from utils.config import DEFAULT_MODEL, OWNER_NAME, INTRO_PHRASE, HERMES_PREFIX, OWNER_INPUT_WAIT, \
     CONVERSATION_END_WAIT, POLL_INTERVAL, RUNTIME_TIMEOUT, TOOL_WAIT, \
     HERMES_API_URL
 
@@ -39,7 +39,8 @@ class ChatEngine:
             "exit_at": None, 
             "final_report": None,
             "service_target": "對方", # 預設值
-            "task_start_time": None
+            "task_start_time": None,
+            "spam_limit": 3 # 統一管理上限
         }
 
     async def _generate_image_locally(self, query: str) -> str:
@@ -148,18 +149,19 @@ class ChatEngine:
         prompt = prompt.replace("{{OWNER_NAME}}", OWNER_NAME)
         prompt = prompt.replace("{{context_lines}}", "\n".join(pruned_context))
         prompt = prompt.replace("{{file_context}}", file_context) 
+        prompt = prompt.replace("{{SPAM_LIMIT}}", str(self.state["spam_limit"]))
         
         return prompt
 
     def _parse_response(self, full_text: str) -> Dict[str, Any]:
         waiting_match = "[WAIT_FOR_USER_INPUT]" in full_text
-        agent_input_match = re.search(r'\[AGENT_INPUT_NEEDED,\s*reason="([^"]+)"(?:,\s*summary="([^"]+)")?\]', full_text)
+        owner_input_match = re.search(r'\[OWNER_INPUT_NEEDED,\s*reason="([^"]+)"(?:,\s*summary="([^"]+)")?\]', full_text)
         convo_ended_match = re.search(r'\[CONVERSATION_ENDED,\s*summary="([^"]+)"\]', full_text)
         tool_match = re.search(r'\[TOOL_ACCESS_NEEDED,\s*tool="([^"]+)",\s*query="([^"]+)"\]', full_text)
         image_matches = re.findall(r'\[IMAGE,\s*([^\]]+)\]', full_text)
         
         reply_text = full_text
-        reply_text = re.sub(r'\[AGENT_INPUT_NEEDED,.*?\]', '', reply_text)
+        reply_text = re.sub(r'\[OWNER_INPUT_NEEDED,.*?\]', '', reply_text)
         reply_text = re.sub(r'\[CONVERSATION_ENDED,.*?\]', '', reply_text)
         reply_text = re.sub(r'\[TOOL_ACCESS_NEEDED,.*?\]', '', reply_text)
         reply_text = re.sub(r'\[IMAGE,.*?\]', '', reply_text)
@@ -168,9 +170,9 @@ class ChatEngine:
         return {
             "text": reply_text,
             "is_waiting": waiting_match,
-            "agent_input_needed": agent_input_match.group(1) if agent_input_match else None,
+            "owner_input_needed": owner_input_match.group(1) if owner_input_match else None,
             "summary": (convo_ended_match.group(1) if convo_ended_match else 
-                        agent_input_match.group(2) if (agent_input_match and agent_input_match.lastindex >= 2) else None),
+                        owner_input_match.group(2) if (owner_input_match and owner_input_match.lastindex >= 2) else None),
             "conversation_ended": convo_ended_match is not None,
             "tool_needed": {"tool": tool_match.group(1), "query": tool_match.group(2)} if tool_match else None,
             "images": [img.strip() for img in image_matches]
@@ -206,8 +208,31 @@ class ChatEngine:
             resp.raise_for_status()
             return resp.json()["choices"][0]["message"]["content"]
 
+    def _check_spamming(self, msgs: List[Dict[str, Any]]) -> None:
+        """檢查是否連續發送超過 N 則訊息 (只計發給使用者的訊息)"""
+        count = 0
+        for m in reversed(msgs):
+            if m.get("sender") != "Hermes":
+                break
+            
+            text = m.get("text", "").strip()
+            # 僅計算發送給使用者的內容 (排除技術性/不可見的動作日誌)
+            if not (text.startswith("[系統") or text.startswith("[TOOL")):
+                count += 1
+        
+        if count >= self.state["spam_limit"]:
+            error_msg = f"[OWNER_INPUT_NEEDED] spamming user is not allowed (limit: {self.state['spam_limit']}). 請詢問 owner 下一步該如何處理"
+            self.history.write_log(f"ERROR: {error_msg}")
+            raise Exception(error_msg)
+
     async def generate_and_send_reply(self, msgs: List[Dict[str, Any]]) -> None:
         """核心回覆邏輯：生成 AI 回應並處理工具調用"""
+        try:
+            self._check_spamming(msgs)
+        except Exception as e:
+            self.state["final_report"] = str(e)
+            raise e
+
         max_turns = 3  # 限制單次回覆循環內的工具調用次數，防止無限遞迴
         current_turn = 0
         
@@ -220,10 +245,14 @@ class ChatEngine:
                 result = self._parse_response(str(getattr(response, 'text', '')).strip())
                 
                 # 處理文字訊息
-                if result["text"] and result["text"] not in self.state["sent_messages"]:
-                    await self.channel.send_message(result["text"])
-                    self.history.write_log(f"SENT: {result['text']}")
-                    self.state["sent_messages"].append(result["text"].strip())
+                text_to_send = result["text"]
+                if not text_to_send and result.get("images"):
+                    text_to_send = "傳送圖片如下："
+
+                if text_to_send and text_to_send not in self.state["sent_messages"]:
+                    await self.channel.send_message(text_to_send)
+                    self.history.write_log(f"SENT: {text_to_send}")
+                    self.state["sent_messages"].append(text_to_send.strip())
                 
                 # 處理圖片發送
                 for img_path in result.get("images", []):
@@ -246,24 +275,24 @@ class ChatEngine:
                     self.history.write_log("DEBUG: [WAIT_FOR_USER_INPUT] detected. Waiting for store response.")
                     break  # 跳出循環，等待外部輪詢
                 
-                if result["agent_input_needed"]:
+                if result["owner_input_needed"]:
                     self.state.update({
-                        "exit_at": time.time() + AGENT_INPUT_WAIT,
-                        "final_report": f"AGENT_INPUT_NEEDED: {result['agent_input_needed']}"
+                        "exit_at": time.time() + OWNER_INPUT_WAIT,
+                        "final_report": f"[OWNER_INPUT_NEEDED] {result['owner_input_needed']}"
                     })
                     break
                 
                 if result["conversation_ended"]:
                     self.state.update({
                         "exit_at": time.time() + CONVERSATION_END_WAIT,
-                        "final_report": "Conversation ended."
+                        "final_report": f"[CONVERSATION_ENDED] {result['summary'] or 'Mission complete.'}"
                     })
                     break
                 
                 if result["tool_needed"]:
                     tool_name = result["tool_needed"]["tool"]
                     query = result["tool_needed"]["query"]
-                    await self.channel.send_message(f"[系統] 正在執行工具: {tool_name}...")
+                    self.history.write_log(f"TOOL_START: {tool_name} with query: {query}")
                     
                     try:
                         if tool_name == "image_gen":
@@ -277,18 +306,19 @@ class ChatEngine:
                         msgs = await self.channel.extract_messages()
                         continue 
                     except Exception as e:
-                        await self.channel.send_message(f"[系統錯誤] 工具執行失敗: {str(e)}")
+                        self.history.write_log(f"TOOL_ERROR: {tool_name} failed: {str(e)}")
                         break
                 
                 break # 無工具需求也無特定狀態，正常結束
                 
             except Exception as e:
                 self.history.write_log(f"Error in generate_and_send_reply: {e}")
+                self.state["final_report"] = f"Error in generate_and_send_reply: {str(e)}"
                 break
 
     async def run(self) -> Optional[str]:
         start_time = time.time()
-        self.history.write_log(f"Proxy Engine started for {self.target_chat} (ID: {self.target_chat_id})")
+        self.history.write_log(f"Proxy Engine started for {self.target_chat} (ID: {self.target_chat_id}) [PID: {os.getpid()}]")
         await self.channel.bring_to_front()
         selection = await self.channel.select_chat(self.target_chat, self.target_chat_id)
         if selection.get("status") != "success":
@@ -303,11 +333,16 @@ class ChatEngine:
         await self.analyze_context(context_lines)
 
         self.state.update(self.history.rebuild_state(msgs or [], self.task_description))
-        await self.generate_and_send_reply(msgs or [])
+        
+        try:
+            await self.generate_and_send_reply(msgs or [])
+        except Exception:
+            # generate_and_send_reply sets final_report on exception
+            return self.state.get("final_report")
 
         while True:
             if time.time() - start_time > RUNTIME_TIMEOUT:
-                msg = "[RESTART_REQUIRED] Runtime limit reached."
+                msg = "[SILENT_RESTART_NEEDED] Runtime limit reached."
                 self.state["final_report"] = msg
                 self.history.write_log(msg)
                 break

@@ -448,6 +448,7 @@ async def extract_messages(page: Any, owner_name: str = "Owner", chat_name: str 
                 return style.display !== 'none' && style.visibility !== 'hidden' && el.offsetHeight > 0;
             }});
             
+            let currentSelfSender = ownerName;
             let currentDate = "";
             items.forEach(el => {{
                 if (el.className.includes('messageDate-module__date__')) {{
@@ -470,9 +471,22 @@ async def extract_messages(page: Any, owner_name: str = "Owner", chat_name: str 
                 const isSelf = direction === 'reverse' || style.justifyContent === 'flex-end' || (msgText && msgText.startsWith(prefix));
                 
                 const msgId = el.getAttribute('data-id') || el.getAttribute('id') || "";
-                // MEDIA DETECTION - REFINED FOR LINE EXTENSION
+                
+                let sender = "";
+                if (isSelf) {{
+                    if (msgText.startsWith(prefix)) {{
+                        currentSelfSender = "Hermes";
+                    }} else if (msgText.length > 0) {{
+                        currentSelfSender = ownerName;
+                    }}
+                    sender = currentSelfSender;
+                }} else {{
+                    const nameEl = el.querySelector({json.dumps(SENDER_NAME_SELECTOR)});
+                    sender = nameEl ? nameEl.innerText.trim() : chatName;
+                    currentSelfSender = ownerName;
+                }}
+
                 let media = null;
-                // Specifically look for images inside the message content container to avoid sidebar/system images
                 const imgEl = contentEl.querySelector('img[src*="blob:"], img[src*="obs"], [class*="image"] img');
                 const stickerEl = el.querySelector('[class*="sticker"], [class*="Sticker"]');
                 const fileEl = el.querySelector('[class*="file"], [class*="File"], a[href*="download"]');
@@ -483,20 +497,12 @@ async def extract_messages(page: Any, owner_name: str = "Owner", chat_name: str 
                     const sImg = stickerEl.querySelector('img');
                     if (sImg) media = {{ type: "sticker", url: sImg.src }};
                 }} else if (fileEl) {{
-                    // Try to find a URL or just the name
                     const fileUrl = fileEl.href || "";
                     media = {{ 
                         type: "file", 
                         name: fileEl.innerText.replace(/[\\n\\r]/g, " ").trim() || "unnamed_file",
                         url: (fileUrl.startsWith('http') || fileUrl.startsWith('blob')) ? fileUrl : ""
                     }};
-                }}
-
-                let sender = "";
-                if (isSelf) sender = msgText.startsWith(prefix) ? "Hermes" : ownerName;
-                else {{ 
-                    const nameEl = el.querySelector({json.dumps(SENDER_NAME_SELECTOR)}); 
-                    sender = nameEl ? nameEl.innerText.trim() : chatName; 
                 }}
                 
                 results.push({{ 
