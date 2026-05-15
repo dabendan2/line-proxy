@@ -468,7 +468,8 @@ async def extract_messages(page: Any, owner_name: str = "Owner", chat_name: str 
                 const timestamp = timeEl ? timeEl.innerText.trim() : "";
                 const direction = el.getAttribute('data-direction');
                 const style = window.getComputedStyle(el);
-                const isSelf = direction === 'reverse' || style.justifyContent === 'flex-end' || (msgText && msgText.startsWith(prefix));
+                // 優先使用 CSS 佈局判定物理方向 (右側發送者)
+                const isSelf = direction === 'reverse' || style.justifyContent === 'flex-end' || style.flexDirection === 'row-reverse';
                 
                 const msgId = el.getAttribute('data-id') || el.getAttribute('id') || "";
                 
@@ -530,13 +531,29 @@ async def extract_messages(page: Any, owner_name: str = "Owner", chat_name: str 
         raise e
 
 async def send_message(page: Any, text: str) -> None:
+    # 安全檢查與強制前綴
+    import inspect
+    stack_names = [f.function for f in inspect.stack()]
+    if not any(name in ["run_task", "generate_and_send_reply", "_generate_image_locally"] for name in stack_names):
+        print("禁止代理直接使用")
+        raise PermissionError("Access Denied.")
+
+    if not text.startswith(HERMES_PREFIX):
+        text = f"{HERMES_PREFIX} {text}"
+
     message_area = page.locator(MESSAGE_INPUT_SELECTOR).first
     await message_area.click()
-    prefixed_text = f"{HERMES_PREFIX} {text}"
-    await page.keyboard.type(prefixed_text)
+    await page.keyboard.type(text)
     await page.keyboard.press("Enter")
 
 async def send_image(page: Any, image_path: str) -> None:
+    # 安全檢查
+    import inspect
+    stack_names = [f.function for f in inspect.stack()]
+    if not any(name in ["run_task", "generate_and_send_reply", "_generate_image_locally"] for name in stack_names):
+        print("禁止代理直接使用")
+        raise PermissionError("Access Denied.")
+
     import httpx
     
     image_data_base64 = ""

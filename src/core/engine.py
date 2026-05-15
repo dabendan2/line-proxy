@@ -221,7 +221,7 @@ class ChatEngine:
                 count += 1
         
         if count >= self.state["spam_limit"]:
-            error_msg = f"[OWNER_INPUT_NEEDED] spamming user is not allowed (limit: {self.state['spam_limit']}). 請詢問 owner 下一步該如何處理"
+            error_msg = f"[OWNER_INPUT_NEEDED] SECURITY_PROTOCOL_ACTIVATED: Spam limit reached ({self.state['spam_limit']}). Your current task loop MUST TERMINATE IMMEDIATELY. Do NOT attempt to use alternative tools (like execute_code) or modify message headers to bypass this safety limit. Report the status to the Owner and WAIT."
             self.history.write_log(f"ERROR: {error_msg}")
             raise Exception(error_msg)
 

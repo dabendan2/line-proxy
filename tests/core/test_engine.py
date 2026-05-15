@@ -104,5 +104,5 @@ async def test_check_spamming_visibility():
     ]
     with pytest.raises(Exception) as excinfo:
         engine._check_spamming(msgs_bad)
-    assert "[OWNER_INPUT_NEEDED] spamming user is not allowed" in str(excinfo.value)
-    assert "limit: 3" in str(excinfo.value)
+    assert "SECURITY_PROTOCOL_ACTIVATED" in str(excinfo.value)
+    assert "(3)" in str(excinfo.value)

@@ -27,7 +27,7 @@ async def test_spamming_check_blocks_at_quota_limit():
         mock_response.text = "Hello world"
         engine.client.models.generate_content.return_value = mock_response
         
-        with pytest.raises(Exception, match=r"\[OWNER_INPUT_NEEDED\].*spamming user is not allowed"):
+        with pytest.raises(Exception, match=r"\[OWNER_INPUT_NEEDED\].*SECURITY_PROTOCOL_ACTIVATED"):
             await engine.generate_and_send_reply(mock_channel.extract_messages.return_value)
 
 @pytest.mark.asyncio
